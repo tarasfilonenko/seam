@@ -4,6 +4,13 @@
 **Encoding**: ASCII / UTF-8  
 **Status**: Draft  
 
+## Related
+
+| Repo | Description |
+|---|---|
+| [deco-host](https://github.com/tarasfilonenko/deco-host) | Generic desktop app for any DECO device |
+| [modbench](https://github.com/tarasfilonenko/modbench) | ModBench hardware toolkit — an example DECO implementation |
+
 ---
 
 ## 1. Overview
