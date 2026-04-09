@@ -257,6 +257,35 @@ Once started, the device emits stream data asynchronously (see Section 6).
 
 ---
 
+### 4.7 `WATCH`
+
+Subscribe to change notifications for a watchable parameter. The device will emit a
+`CHANGED` line asynchronously whenever the parameter's value changes (see Section 6.3).
+
+```
+WATCH <id>\r\n
+UNWATCH <id>\r\n
+```
+
+Response:
+```
+OK\r\n
+```
+
+Errors:
+```
+ERR UNKNOWN_PARAM <id>\r\n
+ERR NOT_WATCHABLE <id>\r\n
+ERR ALREADY_WATCHING <id>\r\n
+ERR NOT_WATCHING <id>\r\n
+```
+
+`CHANGED` notifications are only emitted when the value actually changes — not on every
+`SET` if the value is unchanged. The device does not emit an initial value on `WATCH`;
+the host should `GET` the current value immediately after subscribing if needed.
+
+---
+
 ## 5. CAPS Block
 
 The CAPS response is a multi-line block bounded by `CAPS BEGIN` and `CAPS END`. It
@@ -317,7 +346,7 @@ groups in any order they choose.
 Declares a readable and/or writable parameter.
 
 ```
-PARAM <id> <type> <access> [<min> <max>] [<default>] "<description>"\r\n
+PARAM <id> <type> <access> [<min> <max>] [<default>] [watchable] "<description>"\r\n
 ```
 
 | Field | Values | Notes |
@@ -327,6 +356,7 @@ PARAM <id> <type> <access> [<min> <max>] [<default>] "<description>"\r\n
 | `access` | `r` `w` `rw` | Read-only / write-only / read-write |
 | `min` `max` | numeric | Optional; for `int` and `float` types only |
 | `default` | type-appropriate | Optional; informational — host should always GET to verify |
+| `watchable` | literal keyword | Optional; indicates the host may subscribe via `WATCH` |
 | `description` | quoted string | Human-readable label |
 
 **Enum type:**
@@ -346,6 +376,7 @@ PARAM frequency_hz   int  rw 50  400  50          "PWM frequency in Hz"
 PARAM enabled        bool rw true                 "Enable PWM output"
 PARAM label          string rw "Servo 1"          "Channel label"
 PARAM mode           enum rw "continuous" continuous single sweep "Operating mode"
+PARAM fault          bool r watchable             "Fault condition"
 ```
 
 **Note on defaults:** The `default` field is informational. Hosts should always perform
@@ -424,7 +455,32 @@ Once a stream is started with `STREAM <id> START`, the device emits data asynchr
 until the host sends `STREAM <id> STOP`. The device must not emit stream data before
 `STREAM START` is received.
 
-### 6.1 Text Streams
+Multiple streams may be active simultaneously. `DATA` lines from different streams are
+interleaved freely; the `<id>` tag on each line identifies the source. For binary streams,
+frames must not interleave — if multiple binary streams are active, the device must
+complete one frame before beginning the next.
+
+### 6.1 Parameter Change Notifications
+
+For parameters declared `watchable` and subscribed via `WATCH`, the device emits a
+`CHANGED` line asynchronously whenever the value changes:
+
+```
+CHANGED <id> <value>\r\n
+```
+
+`CHANGED` lines may interleave freely with `DATA` lines from active streams. The value
+format follows the same rules as `GET` responses for the parameter's type.
+
+Example:
+```
+CHANGED fault true
+CHANGED mode sweep
+```
+
+---
+
+### 6.2 Text Streams (DATA)
 
 For streams with `data_type` of `int`, `float`, or `bool`:
 
@@ -442,7 +498,7 @@ DATA position 1524.1
 DATA fault false
 ```
 
-### 6.2 Binary Streams
+### 6.3 Binary Streams
 
 For streams with `data_type` `binary`, the device uses inline framing markers to switch
 the connection into binary mode for the duration of the payload.
@@ -532,6 +588,9 @@ during binary frame transmission must be queued and processed after the frame co
 | `FAILED` | Action attempted but failed (with optional message) |
 | `ALREADY_STREAMING` | `STREAM START` issued while already streaming |
 | `NOT_STREAMING` | `STREAM STOP` issued while not streaming |
+| `NOT_WATCHABLE` | `WATCH` issued for a param not declared `watchable` |
+| `ALREADY_WATCHING` | `WATCH` issued while already subscribed |
+| `NOT_WATCHING` | `UNWATCH` issued while not subscribed |
 
 ---
 
@@ -565,8 +624,9 @@ A conforming DECO device must:
 
 - Respond to `CAPS\r\n` within **500ms**, at any time after the connection is opened
 - Return `ERR UNKNOWN_CMD\r\n` for any unrecognized command — never hang or ignore
-- Never send unsolicited output except `DATA` lines for active text streams and
-  `STREAM_BEGIN`/`STREAM_END` frames for active binary streams
+- Never send unsolicited output except `DATA` lines for active text streams,
+  `STREAM_BEGIN`/`STREAM_END` frames for active binary streams, and `CHANGED` lines
+  for active `WATCH` subscriptions
 - Queue commands received during binary frame transmission — do not interrupt a frame
 - Reset internal streaming state cleanly when the connection is closed and reopened
 - Accept any baud rate if using USB CDC-ACM (baud rate is irrelevant for CDC-ACM)
