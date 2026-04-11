@@ -1,6 +1,6 @@
 # DECO — Device Description & Control Protocol
 
-**Version**: 1.0.0  
+**Version**: 2.0.0  
 **Encoding**: ASCII / UTF-8  
 **Status**: Draft  
 
@@ -21,8 +21,8 @@ a serial connection. The host can then discover what the device can do and inter
 it dynamically, without needing prior knowledge of the device type.
 
 A DECO device exposes:
-- **Parameters** — named values that can be read and/or written
-- **Actions** — named functions that can be invoked
+- **Parameters** — named values that can be read and/or written; types are expressed as MIME types
+- **Actions** — named functions that can be invoked, with typed arguments
 - **Streams** — named data channels that emit values continuously
 
 The host queries capabilities once on connect, then uses a small set of commands
@@ -35,7 +35,7 @@ or code generation is required to support a new device type.
 - **Self-describing** — the device tells the host everything; the host needs no prior knowledge
 - **Transport-agnostic** — designed for USB CDC-ACM but works over any byte stream
 - **MCU-friendly** — implementable on a microcontroller with minimal RAM and no dynamic allocation
-- **Minimal** — one handshake command (`CAPS`), five interaction commands
+- **Minimal** — one handshake command (`CAPS`), six interaction commands
 
 ### Relationship to existing protocols
 
@@ -80,52 +80,73 @@ All DECO communication uses text lines. Every line follows this structure:
 Rules:
 
 - Lines are terminated with **`\r\n`** (CR LF, 0x0D 0x0A).
-- Maximum line length: **128 bytes** including the terminator.
 - Fields are separated by **one or more spaces**.
-- Arguments containing spaces must be **double-quoted**: `"my value"`.
-- Escape sequences inside quoted strings: `\"` (literal quote), `\\` (literal backslash).
-- Keywords and type names are **UPPERCASE**.
+- Keywords are **UPPERCASE**.
 - IDs (parameter names, action names, stream IDs, group IDs, device types) use
   **lowercase alphanumeric with underscores** only: `[a-z0-9_]+`.
 - Lines beginning with `#` are **comments** and must be ignored by the receiver.
+- Data payloads are length-prefixed and not subject to line length constraints — see Section 12.
+
+> **Note:** Quoted strings appear only in `STATUS` responses (Section 5.5). All other
+> variable-length content uses the length-prefixed frame format (Section 12).
 
 ---
 
-## 4. Commands (Host → Device)
+## 4. Block Structure
 
-### 4.1 `CAPS`
+All DECO structural declarations follow a universal pattern:
+
+```
+KEYWORD BEGIN [id]
+key:value
+...
+KEYWORD END
+```
+
+Rules:
+
+- `KEYWORD BEGIN` opens a block, optionally followed by an id on the same line.
+- `KEYWORD END` closes the block.
+- Block contents consist of `key:value` lines and/or nested blocks.
+- Blocks may be nested.
+- Unknown `key:value` lines must be silently ignored — forward compatibility.
+
+This pattern is used by `CAPS`, `GROUP`, `PARAM`, `ACTION`, `ARG`, and `STREAM` blocks,
+and by the `DO` command block.
+
+---
+
+## 5. Commands (Host → Device)
+
+### 5.1 `CAPS`
 
 Request full capability description. This is the **only handshake command**. CAPS returns
-everything the host needs: device identity, firmware version, and all capabilities. There
-is no separate HELLO command.
+device identity, firmware version, and all declared capabilities. There is no separate
+HELLO command.
 
 ```
 CAPS\r\n
 ```
 
-Response: a multi-line CAPS block (see Section 5).
+Response: a CAPS block (see Section 6).
 
 The device must respond to `CAPS` at any time, including immediately after power-on or
 port open. Response must arrive within **500ms**.
 
 ---
 
-### 4.2 `GET`
+### 5.2 `GET`
 
-Read one or more parameter values.
+Read a single parameter value.
 
 ```
-GET <id> [<id> ...]\r\n
-```
-
-Response — single parameter:
-```
-OK <value>\r\n
+GET <id>\r\n
 ```
 
-Response — multiple parameters, values in the same order as requested:
+Response:
 ```
-OK <value1> <value2> ...\r\n
+VALUE <id> <length>\r\n
+<data>\r\n
 ```
 
 Errors:
@@ -137,21 +158,29 @@ ERR NOT_READABLE <id>\r\n
 Example:
 ```
 >> GET pulse_width_us
-<< OK 1500
+<< VALUE pulse_width_us 4
+<< 1500
 
->> GET pulse_width_us enabled
-<< OK 1500 true
+>> GET label
+<< VALUE label 7
+<< Servo 1
+
+>> GET schematic
+<< VALUE schematic 4096
+<< <4096 bytes of PNG data>
 ```
+
+> **Note:** Multi-parameter GET is not supported. Issue one `GET` per parameter.
 
 ---
 
-### 4.3 `SET`
+### 5.3 `SET`
 
-Write one or more parameter values. Multiple id/value pairs may be set atomically in
-one command.
+Write a single parameter value.
 
 ```
-SET <id> <value> [<id> <value> ...]\r\n
+SET <id> <length>\r\n
+<data>\r\n
 ```
 
 Response:
@@ -169,26 +198,37 @@ ERR INVALID_VALUE <id>\r\n
 
 Example:
 ```
->> SET pulse_width_us 1200
+>> SET pulse_width_us 4
+>> 1200
 << OK
 
->> SET pulse_width_us 1200 enabled true
+>> SET display 3072
+>> <3072 bytes of JPEG data>
 << OK
 ```
+
+The device validates incoming data against the declared MIME type. On type mismatch or
+parse failure it responds with `ERR INVALID_VALUE <id>`.
+
+> **Note:** Multi-parameter SET is not supported. Issue one `SET` per parameter.
 
 ---
 
-### 4.4 `DO`
+### 5.4 `DO`
 
-Invoke a named action with zero or more arguments.
+Invoke a named action. `DO BEGIN` opens the call block; each argument is an `IN` frame
+identified by name; `DO END` closes the block and triggers execution.
 
 ```
-DO <id> [<arg1> <arg2> ...]\r\n
+DO BEGIN <id>\r\n
+[IN <id> <length>\r\n
+<data>\r\n]
+DO END\r\n
 ```
 
 Response:
 ```
-OK [<return_value>]\r\n
+OK\r\n
 ```
 
 Errors:
@@ -201,16 +241,33 @@ ERR FAILED "<message>"\r\n
 
 Example:
 ```
->> DO center
+>> DO BEGIN center
+>> DO END
 << OK
 
->> DO sweep 1000 2000
+>> DO BEGIN sweep
+>> IN start_us 4
+>> 1000
+>> IN end_us 4
+>> 2000
+>> DO END
+<< OK
+
+>> DO BEGIN load_frame
+>> IN frame 3072
+>> <3072 bytes of JPEG data>
+>> DO END
 << OK
 ```
 
+Argument data uses the same encoding as `SET` for the declared MIME type. `deco/` scalar
+values are represented as ASCII text (e.g. `1000` for a `deco/int`). Arguments may be
+sent in any order — the device matches them by name against the ACTION declaration.
+All declared arguments are required; omitting any results in `ERR BAD_ARGS`.
+
 ---
 
-### 4.5 `STATUS`
+### 5.5 `STATUS`
 
 Request a human-readable status string. Intended for debugging and display. The content
 is free-form and device-defined.
@@ -232,7 +289,7 @@ Example:
 
 ---
 
-### 4.6 `STREAM`
+### 5.6 `STREAM`
 
 Start or stop a declared data stream.
 
@@ -253,14 +310,15 @@ ERR ALREADY_STREAMING <id>\r\n
 ERR NOT_STREAMING <id>\r\n
 ```
 
-Once started, the device emits stream data asynchronously (see Section 6).
+Once started, the device emits `DATA` frames asynchronously until `STREAM <id> STOP` is
+received — see Section 12.3.
 
 ---
 
-### 4.7 `WATCH`
+### 5.7 `WATCH` / `UNWATCH`
 
-Subscribe to change notifications for a watchable parameter. The device will emit a
-`CHANGED` line asynchronously whenever the parameter's value changes (see Section 6.3).
+Subscribe to or unsubscribe from change notifications for a watchable parameter. The device
+emits a `CHANGED` line asynchronously whenever the value changes — see Section 13.
 
 ```
 WATCH <id>\r\n
@@ -286,292 +344,387 @@ the host should `GET` the current value immediately after subscribing if needed.
 
 ---
 
-## 5. CAPS Block
+## 6. CAPS Block
 
-The CAPS response is a multi-line block bounded by `CAPS BEGIN` and `CAPS END`. It
-contains device identity metadata followed by one or more groups, each containing
-parameters, actions, and streams.
+The CAPS response is a multi-line block bounded by `CAPS BEGIN` and `CAPS END`. It contains
+device identity fields followed by one or more group blocks.
 
-### 5.1 Full Structure
+### 6.1 Structure
 
 ```
-CAPS BEGIN\r\n
-TYPE <device_type>\r\n
-NAME "<display_name>"\r\n
-VERSION <semver>\r\n
-GROUP <id> "<label>"\r\n
-PARAM ...\r\n
-ACTION ...\r\n
-STREAM ...\r\n
-END GROUP\r\n
-[GROUP ...]\r\n
-CAPS END\r\n
+CAPS BEGIN
+type:<device_type>
+name:<display_name>
+version:<semver>
+
+GROUP BEGIN <id>
+...
+GROUP END
+
+[GROUP BEGIN <id>
+...
+GROUP END]
+
+CAPS END
 ```
 
-All three identity lines (`TYPE`, `NAME`, `VERSION`) are required and must appear before
-any `GROUP` lines.
+### 6.2 Identity Fields
 
-### 5.2 Identity Lines
-
-| Line | Format | Description |
+| Key | Value | Description |
 |---|---|---|
-| `TYPE` | `TYPE <device_type>` | Machine-readable device identifier, `[a-z0-9_]+` |
-| `NAME` | `NAME "<display_name>"` | Human-readable device name |
-| `VERSION` | `VERSION <semver>` | Firmware/software version, semantic versioning |
+| `type` | `[a-z0-9_]+` | Machine-readable device identifier |
+| `name` | string | Human-readable device name |
+| `version` | semver | Firmware version |
 
-Example:
-```
-TYPE servo_tester
-NAME "Servo Tester"
-VERSION 1.2.0
-```
+All three are mandatory and must appear before any `GROUP BEGIN`.
 
-### 5.3 GROUP
+---
 
-Groups organise parameters, actions, and streams into logical sections. A DECO device
-must declare at least one group. All PARAMs, ACTIONs, and STREAMs must appear inside
-a group.
+## 7. GROUP Block
 
 ```
-GROUP <id> "<label>"\r\n
-...contents...
-END GROUP\r\n
+GROUP BEGIN <id>
+label:<display_label>
+
+PARAM BEGIN ...
+ACTION BEGIN ...
+STREAM BEGIN ...
+
+GROUP END
 ```
+
+| Key | Mandatory | Description |
+|---|---|---|
+| `label` | yes | Human-readable group label |
+
+Groups organise parameters, actions, and streams into logical sections. All `PARAM`,
+`ACTION`, and `STREAM` declarations must appear inside a group. Empty groups are valid.
 
 Groups are logical only — they carry no layout hints. Host applications may present
 groups in any order they choose.
 
-### 5.4 PARAM
+---
 
-Declares a readable and/or writable parameter.
+## 8. PARAM Block
 
 ```
-PARAM <id> <type> <access> [<min> <max>] [<default>] [watchable] "<description>"\r\n
+PARAM BEGIN <id>
+type:<mime_type>
+access:<r|w|rw>
+description:<text>
+[default:<value>]
+[min:<value>]
+[max:<value>]
+[options:<value> ...]
+[watchable:true]
+PARAM END
 ```
 
-| Field | Values | Notes |
+### 8.1 Fields
+
+| Key | Mandatory | Description |
 |---|---|---|
-| `id` | `[a-z0-9_]+` | Machine-readable name, unique within the device |
-| `type` | `int` `float` `bool` `string` `enum` | Value type |
-| `access` | `r` `w` `rw` | Read-only / write-only / read-write |
-| `min` `max` | numeric | Optional; for `int` and `float` types only |
-| `default` | type-appropriate | Optional; informational — host should always GET to verify |
-| `watchable` | literal keyword | Optional; indicates the host may subscribe via `WATCH` |
-| `description` | quoted string | Human-readable label |
+| `type` | yes | MIME type of the parameter value |
+| `access` | yes | `r`, `w`, or `rw` |
+| `description` | yes | Human-readable label |
+| `default` | no | Informational default value |
+| `min` | no | Minimum value — `deco/int` and `deco/float` only |
+| `max` | no | Maximum value — `deco/int` and `deco/float` only |
+| `options` | no | Space-separated option list — `deco/enum` only |
+| `watchable` | no | `true` — host may subscribe via `WATCH` |
 
-**Enum type:**
+**Note on defaults:** The `default` field is informational. Hosts should always `GET`
+live values after `CAPS` before populating their UI.
 
-Enum params use a different field order — the default is quoted and comes before the
-option list. Description is always the last quoted string.
-
-```
-PARAM <id> enum <access> "<default>" <option1> <option2> ... "<description>"\r\n
-```
-
-**Examples:**
+### 8.2 Examples
 
 ```
-PARAM pulse_width_us int  rw 500 2500 1500        "Servo pulse width in microseconds"
-PARAM frequency_hz   int  rw 50  400  50          "PWM frequency in Hz"
-PARAM enabled        bool rw true                 "Enable PWM output"
-PARAM label          string rw "Servo 1"          "Channel label"
-PARAM mode           enum rw "continuous" continuous single sweep "Operating mode"
-PARAM fault          bool r watchable             "Fault condition"
-```
+PARAM BEGIN pulse_width_us
+type:deco/int
+access:rw
+min:500
+max:2500
+default:1500
+description:Pulse width in microseconds
+PARAM END
 
-**Note on defaults:** The `default` field is informational. Hosts should always perform
-a `GET` sweep after `CAPS` to obtain the live values before populating their UI.
+PARAM BEGIN enabled
+type:deco/bool
+access:rw
+default:true
+description:Enable PWM output
+PARAM END
 
-### 5.5 ACTION
+PARAM BEGIN mode
+type:deco/enum
+access:rw
+default:continuous
+options:continuous single sweep
+description:Operating mode
+PARAM END
 
-Declares a callable action — a named function the host can invoke via `DO`.
+PARAM BEGIN label
+type:deco/string
+access:rw
+default:Servo 1
+description:Channel label
+PARAM END
 
-```
-ACTION <id> [<arg_type> ...] "<description>"\r\n
-```
+PARAM BEGIN schematic
+type:image/png
+access:r
+watchable:true
+description:Module schematic diagram
+PARAM END
 
-| Field | Values | Notes |
-|---|---|---|
-| `id` | `[a-z0-9_]+` | Machine-readable name |
-| `arg_type` | `int` `float` `bool` `string` | Zero or more argument types, in order |
-| `description` | quoted string | Human-readable label |
-
-Examples:
-```
-ACTION center                  "Move servo to center position"
-ACTION sweep int int           "Sweep between two pulse widths (us)"
-ACTION set_label string        "Set the channel label"
-```
-
-### 5.6 STREAM
-
-Declares an available data stream the host can start and stop via the `STREAM` command.
-
-```
-STREAM <id> <data_type> "<description>"\r\n
-```
-
-| Field | Values | Notes |
-|---|---|---|
-| `id` | `[a-z0-9_]+` | Stream identifier |
-| `data_type` | `int` `float` `bool` `binary` | Type of emitted values |
-| `description` | quoted string | Human-readable label |
-
-Examples:
-```
-STREAM position float  "Current servo position feedback (us)"
-STREAM capture  binary "Raw logic capture data"
-STREAM fault    bool   "Fault condition alert"
-```
-
-### 5.7 Complete CAPS Example
-
-```
-CAPS BEGIN
-TYPE servo_tester
-NAME "Servo Tester"
-VERSION 1.0.0
-GROUP pwm "PWM Control"
-PARAM pulse_width_us int rw 500 2500 1500 "Pulse width in microseconds"
-PARAM frequency_hz int rw 50 400 50 "PWM frequency in Hz"
-PARAM enabled bool rw true "Enable PWM output"
-PARAM mode enum rw "continuous" continuous single sweep "Operating mode"
-ACTION center "Move to center position"
-ACTION sweep int int "Sweep between two pulse widths (us)"
-STREAM position float "Live position feedback (us)"
-END GROUP
-GROUP info "Module Info"
-PARAM label string rw "Servo 1" "Channel label"
-PARAM uptime_s int r "Uptime in seconds"
-END GROUP
-CAPS END
+PARAM BEGIN display
+type:image/jpeg
+access:w
+description:Display framebuffer
+PARAM END
 ```
 
 ---
 
-## 6. Stream Data (Device → Host, Asynchronous)
+## 9. ACTION Block
 
-Once a stream is started with `STREAM <id> START`, the device emits data asynchronously
-until the host sends `STREAM <id> STOP`. The device must not emit stream data before
-`STREAM START` is received.
+```
+ACTION BEGIN <id>
+description:<text>
 
-Multiple streams may be active simultaneously. `DATA` lines from different streams are
-interleaved freely; the `<id>` tag on each line identifies the source. For binary streams,
-frames must not interleave — if multiple binary streams are active, the device must
-complete one frame before beginning the next.
+[ARG BEGIN <id>
+type:<mime_type>
+description:<text>
+[min:<value>]
+[max:<value>]
+[options:<value> ...]
+ARG END]
 
-### 6.1 Parameter Change Notifications
+ACTION END
+```
 
-For parameters declared `watchable` and subscribed via `WATCH`, the device emits a
+### 9.1 ACTION Fields
+
+| Key | Mandatory | Description |
+|---|---|---|
+| `description` | yes | Human-readable label |
+
+### 9.2 ARG Fields
+
+| Key | Mandatory | Description |
+|---|---|---|
+| `type` | yes | MIME type of the argument value |
+| `description` | yes | Human-readable label |
+| `min` | no | Minimum value — `deco/int` and `deco/float` only |
+| `max` | no | Maximum value — `deco/int` and `deco/float` only |
+| `options` | no | Space-separated option list — `deco/enum` only |
+
+Any MIME type may appear in `type`, including `image/*` and `application/octet-stream`.
+If an action produces output, model it as a `PARAM` (readable after the action completes)
+or a `STREAM`. See Section 5.4 for the `DO` wire protocol.
+
+### 9.3 Examples
+
+```
+ACTION BEGIN center
+description:Move to center position
+ACTION END
+
+ACTION BEGIN sweep
+description:Sweep between two pulse widths in microseconds
+
+ARG BEGIN start_us
+type:deco/int
+min:500
+max:2500
+description:Start pulse width in microseconds
+ARG END
+
+ARG BEGIN end_us
+type:deco/int
+min:500
+max:2500
+description:End pulse width in microseconds
+ARG END
+
+ACTION END
+
+ACTION BEGIN load_frame
+description:Load JPEG image into display framebuffer
+
+ARG BEGIN frame
+type:image/jpeg
+description:Frame data
+ARG END
+
+ACTION END
+```
+
+---
+
+## 10. STREAM Block
+
+```
+STREAM BEGIN <id>
+type:<mime_type>
+description:<text>
+STREAM END
+```
+
+| Key | Mandatory | Description |
+|---|---|---|
+| `type` | yes | MIME type of emitted values |
+| `description` | yes | Human-readable label |
+
+Any MIME type may be used, including `image/*` and `application/octet-stream`.
+
+### 10.1 Examples
+
+```
+STREAM BEGIN position
+type:deco/float
+description:Live position feedback in microseconds
+STREAM END
+
+STREAM BEGIN capture
+type:application/octet-stream
+description:Raw capture data
+STREAM END
+```
+
+---
+
+## 11. MIME Type System
+
+The `type` field in `PARAM`, `ACTION`, and `STREAM` blocks uses MIME types throughout.
+
+### 11.1 DECO Informal Namespace
+
+DECO defines a `deco/` informal namespace for primitive scalar types. These are not
+registered MIME types — they are DECO-internal.
+
+| Type | Description |
+|---|---|
+| `deco/int` | Integer, represented as decimal ASCII |
+| `deco/float` | Floating point, represented as decimal ASCII |
+| `deco/bool` | Boolean — ASCII `true` or `false` |
+| `deco/string` | UTF-8 string |
+| `deco/enum` | One of a declared set of string options |
+
+### 11.2 Standard MIME Types
+
+Any valid MIME type may be used. Common examples:
+
+| Type | Description |
+|---|---|
+| `image/png` | PNG image |
+| `image/jpeg` | JPEG image |
+| `image/bmp` | BMP image |
+| `application/octet-stream` | Raw binary data |
+
+This list is not exhaustive.
+
+---
+
+## 12. Frame Format
+
+All variable-length data exchange — `GET` responses, `SET` commands, `DO` arguments, and
+stream `DATA` — uses a single frame format:
+
+```
+KEYWORD <id> <length>\r\n
+<data>\r\n
+```
+
+- `KEYWORD` — one of `VALUE`, `SET`, `DATA`, `IN`
+- `<id>` — parameter, argument, or stream identifier
+- `<length>` — byte count of `<data>`; the trailing `\r\n` is not counted
+- `<data>` — exactly `<length>` bytes
+
+`IN` frames appear inside `DO BEGIN` / `DO END` blocks (see Section 5.4). The length
+field defines the data boundary — no closing marker is needed.
+
+| Frame | Direction | Context |
+|---|---|---|
+| `VALUE` | device → host | `GET` response |
+| `SET` | host → device | write a parameter value |
+| `DATA` | device → host | active stream frame |
+| `IN` | host → device | argument inside a `DO` block |
+
+### 12.1 VALUE — GET Response
+
+```
+>> GET pulse_width_us
+<< VALUE pulse_width_us 4
+<< 1500
+
+>> GET label
+<< VALUE label 7
+<< Servo 1
+
+>> GET schematic
+<< VALUE schematic 4096
+<< <4096 bytes of PNG data>
+```
+
+### 12.2 SET — Write Command
+
+```
+>> SET pulse_width_us 4
+>> 1200
+<< OK
+
+>> SET display 3072
+>> <3072 bytes of JPEG data>
+<< OK
+```
+
+### 12.3 DATA — Stream Frames
+
+Once a stream is started with `STREAM <id> START`, the device emits frames asynchronously
+until `STREAM <id> STOP` is received:
+
+```
+DATA position 6
+1523.5
+
+DATA capture 512
+<512 raw bytes>
+```
+
+Multiple streams may be active simultaneously. `DATA` frames from different streams
+interleave freely; the `<id>` tag on each frame identifies the source.
+
+---
+
+## 13. CHANGED Notification
+
+For parameters declared `watchable:true` and subscribed via `WATCH`, the device emits a
 `CHANGED` line asynchronously whenever the value changes:
 
 ```
-CHANGED <id> <value>\r\n
+CHANGED <id>\r\n
 ```
 
-`CHANGED` lines may interleave freely with `DATA` lines from active streams. The value
-format follows the same rules as `GET` responses for the parameter's type.
+The host must issue `GET <id>` to retrieve the new value.
+
+`CHANGED` lines may interleave freely with `DATA` frames from active streams.
 
 Example:
 ```
-CHANGED fault true
-CHANGED mode sweep
+CHANGED schematic
+CHANGED pulse_width_us
 ```
+
+> **Change from 1.0.0:** The 1.0.0 `CHANGED` format included the new value inline:
+> `CHANGED <id> <value>`. In 2.0.0, `CHANGED` emits the id only, and the host retrieves
+> the value with a subsequent `GET`. This change enables uniform handling of all MIME
+> types — a `CHANGED` line carrying an image payload would break the text line model.
+> The trade-off is one extra `GET` round-trip per notification for scalar parameters.
 
 ---
 
-### 6.2 Text Streams (DATA)
-
-For streams with `data_type` of `int`, `float`, or `bool`:
-
-```
-DATA <id> <value>\r\n
-```
-
-The host should avoid sending commands that expect responses while high-rate DATA lines
-are arriving, or must buffer and correlate responses carefully.
-
-Example:
-```
-DATA position 1523.5
-DATA position 1524.1
-DATA fault false
-```
-
-### 6.3 Binary Streams
-
-For streams with `data_type` `binary`, the device uses inline framing markers to switch
-the connection into binary mode for the duration of the payload.
-
-**Frame structure:**
-
-```
-STREAM_BEGIN <id> <length>\r\n
-<length raw bytes>
-STREAM_END <crc32_hex>\r\n
-```
-
-- `STREAM_BEGIN` and `STREAM_END` are text lines, `\r\n` terminated.
-- `<length>` is the byte count of the raw payload (decimal integer).
-- Raw bytes follow immediately after the `\r\n` of `STREAM_BEGIN` with no additional
-  framing.
-- `<crc32_hex>` is the **lowercase hex** CRC-32 of the raw payload bytes only
-  (not the markers).
-- After `STREAM_END` the connection returns to text mode.
-
-**Host parser state machine:**
-
-```
-TEXT_MODE:
-    read line
-    if starts with "STREAM_BEGIN" → parse id and length → enter BINARY_MODE
-    else → handle as normal response or DATA line
-
-BINARY_MODE:
-    read exactly <length> bytes → store as payload
-    read next line → expect "STREAM_END <crc32_hex>"
-    if CRC matches → deliver payload to application → enter TEXT_MODE
-    if CRC fails   → discard payload, signal CRC error → enter TEXT_MODE
-```
-
-**Continuous binary streams** emit successive frames until stopped:
-
-```
-STREAM_BEGIN capture 512\r\n
-<512 bytes>
-STREAM_END a3f1c209\r\n
-STREAM_BEGIN capture 512\r\n
-<512 bytes>
-STREAM_END 7b2e4411\r\n
-```
-
-When the host sends `STREAM <id> STOP`, the device finishes its current frame before
-stopping. It must not stop mid-frame.
-
----
-
-## 7. Responses
-
-Every command sent by the host receives exactly one response line from the device,
-except during active streams where `DATA` lines and binary frames are interspersed
-asynchronously.
-
-**Success:**
-```
-OK [<value>]\r\n
-```
-
-**Error:**
-```
-ERR <code> [<detail>]\r\n
-```
-
-The device must always respond to commands even during active streams. Commands received
-during binary frame transmission must be queued and processed after the frame completes.
-
----
-
-## 8. Error Codes
+## 14. Error Codes
 
 | Code | Meaning |
 |---|---|
@@ -583,18 +736,18 @@ during binary frame transmission must be queued and processed after the frame co
 | `NOT_WRITABLE` | Parameter is read-only |
 | `OUT_OF_RANGE` | Numeric value outside declared min/max |
 | `INVALID_VALUE` | Value cannot be parsed for the declared type |
-| `BAD_ARGS` | Wrong number or type of arguments for action |
+| `BAD_ARGS` | Unknown argument name, missing required argument, or value invalid for declared type |
 | `BUSY` | Device cannot accept this command right now |
 | `FAILED` | Action attempted but failed (with optional message) |
 | `ALREADY_STREAMING` | `STREAM START` issued while already streaming |
 | `NOT_STREAMING` | `STREAM STOP` issued while not streaming |
-| `NOT_WATCHABLE` | `WATCH` issued for a param not declared `watchable` |
+| `NOT_WATCHABLE` | `WATCH` issued for a param not declared `watchable:true` |
 | `ALREADY_WATCHING` | `WATCH` issued while already subscribed |
 | `NOT_WATCHING` | `UNWATCH` issued while not subscribed |
 
 ---
 
-## 9. USB CDC-ACM Identification Convention
+## 15. USB CDC-ACM Identification Convention
 
 When a DECO device uses USB CDC-ACM as its transport, it should set the USB manufacturer
 string to `"DECO"`. This allows host applications and watcher scripts to identify DECO
@@ -602,7 +755,7 @@ devices by scanning serial ports without opening them.
 
 ```c
 #define USB_MANUFACTURER  "DECO"           // marks this as a DECO device
-#define USB_PRODUCT       "Servo Tester"   // human-readable, should match NAME in CAPS
+#define USB_PRODUCT       "Servo Tester"   // human-readable, should match name in CAPS
 ```
 
 This convention is optional — DECO works over any transport and the protocol itself has
@@ -612,23 +765,19 @@ no dependency on USB descriptor strings. However, implementing it enables:
 - Filtering DECO ports from unrelated serial devices
 - Instant display of a human-readable name before CAPS is received
 
-The `USB_PRODUCT` string should match the `NAME` field in CAPS exactly. This allows the
-host to show the correct device name immediately when the port appears, before CAPS has
-been sent and parsed.
+The `USB_PRODUCT` string should match the `name` field in CAPS exactly.
 
 ---
 
-## 10. Device Implementation Requirements
+## 16. Device Implementation Requirements
 
 A conforming DECO device must:
 
 - Respond to `CAPS\r\n` within **500ms**, at any time after the connection is opened
 - Return `ERR UNKNOWN_CMD\r\n` for any unrecognized command — never hang or ignore
-- Never send unsolicited output except `DATA` lines for active text streams,
-  `STREAM_BEGIN`/`STREAM_END` frames for active binary streams, and `CHANGED` lines
-  for active `WATCH` subscriptions
-- Queue commands received during binary frame transmission — do not interrupt a frame
-- Reset internal streaming state cleanly when the connection is closed and reopened
+- Never send unsolicited output except `DATA` frames for active streams and `CHANGED`
+  lines for active `WATCH` subscriptions
+- Reset internal streaming and watch state cleanly when the connection is closed and reopened
 - Accept any baud rate if using USB CDC-ACM (baud rate is irrelevant for CDC-ACM)
 
 A conforming DECO device should:
@@ -639,31 +788,51 @@ A conforming DECO device should:
 
 ---
 
-## 11. Host Implementation Requirements
+## 17. Host Implementation Requirements
 
 A conforming DECO host must:
 
 - Send `CAPS` immediately after opening a connection
 - Perform a `GET` sweep of all readable parameters after `CAPS` to obtain live values
-- Correctly implement the binary stream parser state machine (Section 6.2)
+- Parse the frame format: `KEYWORD <id> <length>\r\n<data>\r\n` for `VALUE` and `DATA`
 - Handle `ERR` responses gracefully without crashing
+- Issue `GET <id>` upon receiving a `CHANGED <id>` notification to retrieve the new value
 - Not send a new command until the previous command's response has been received,
-  except when an active text stream is running
+  except when active streams are running
 
 ---
 
-## 12. Versioning
+## 18. Versioning
 
 This specification follows [Semantic Versioning](https://semver.org/).
 
 - **MAJOR**: breaking changes to the wire format or command semantics
-- **MINOR**: new commands, new CAPS keywords, backward-compatible additions
+- **MINOR**: new commands, new block keys, backward-compatible additions
 - **PATCH**: clarifications, corrections, no wire format change
 
-The `VERSION` field in a CAPS response reflects the **device firmware version**, not
+The `version` field in a CAPS response reflects the **device firmware version**, not
 the DECO protocol version. Protocol version is tracked in this document.
 
 ### Changelog
+
+**2.0.0**
+- Universal block structure: `KEYWORD BEGIN [id]` / `KEYWORD END` throughout
+- CAPS, GROUP, PARAM, ACTION, STREAM all follow the same block pattern
+- Identity fields use `key:value` format (`type`, `name`, `version`), replacing `TYPE`, `NAME`, `VERSION` keyword lines
+- MIME type system replaces primitive type names; `deco/` informal namespace for scalar primitives
+- `image/*` and arbitrary MIME types supported in `PARAM`, `ACTION` args, and `STREAM`
+- Unified frame format: `KEYWORD <id> <length>\r\n<data>\r\n` for `VALUE`, `SET`, `DATA`, `ARG`
+- `VALUE <id> <length>` replaces `OK <value>` for GET responses
+- ACTION arguments declared as named `ARG BEGIN` / `ARG END` declaration blocks with `type`, `description`, and optional `min`/`max`/`options`
+- `DO` uses block format: `DO BEGIN <id>` / `IN <id> <length>` / `DO END`; args matched by name, any order, all required
+- ACTION `returns` removed — output modelled as `PARAM` or `STREAM`
+- `CHANGED <id>` emits id only — host issues `GET` to retrieve value (was `CHANGED <id> <value>` in 1.0.0)
+- `watchable:true` replaces bare `watchable` flag
+- `STREAM_BEGIN`/`STREAM_END` binary framing removed — all streams use `DATA` frames
+- Old inline `PARAM`, `ACTION`, `STREAM`, `GROUP` declaration formats removed
+- Multi-parameter `GET` and `SET` removed
+- Line length restriction removed
+- Empty `GROUP` blocks are valid
 
 **1.0.0** — Initial release.
 
@@ -675,96 +844,209 @@ The smallest valid DECO CAPS response:
 
 ```
 CAPS BEGIN
-TYPE temperature_sensor
-NAME "Temperature Sensor"
-VERSION 1.0.0
-GROUP readings "Readings"
-PARAM temp_c float r "Temperature in Celsius"
-STREAM temp float "Live temperature stream"
-END GROUP
+type:temperature_sensor
+name:Temperature Sensor
+version:1.0.0
+
+GROUP BEGIN readings
+label:Readings
+
+PARAM BEGIN temp_c
+type:deco/float
+access:r
+description:Temperature in Celsius
+PARAM END
+
+STREAM BEGIN temp
+type:deco/float
+description:Live temperature stream
+STREAM END
+
+GROUP END
+
 CAPS END
 ```
 
 ---
 
-## Appendix B — Example Session (Servo Tester)
+## Appendix B — Complete CAPS Example (Servo Tester)
 
 ```
->> CAPS
-<< CAPS BEGIN
-<< TYPE servo_tester
-<< NAME "Servo Tester"
-<< VERSION 1.0.0
-<< GROUP pwm "PWM Control"
-<< PARAM pulse_width_us int rw 500 2500 1500 "Pulse width in microseconds"
-<< PARAM frequency_hz int rw 50 400 50 "PWM frequency in Hz"
-<< PARAM enabled bool rw true "Enable PWM output"
-<< PARAM mode enum rw "continuous" continuous single sweep "Operating mode"
-<< ACTION center "Move to center position"
-<< ACTION sweep int int "Sweep between two pulse widths (us)"
-<< STREAM position float "Live position feedback (us)"
-<< END GROUP
-<< CAPS END
+CAPS BEGIN
+type:servo_tester
+name:Servo Tester
+version:2.0.0
 
->> GET pulse_width_us frequency_hz enabled mode
-<< OK 1500 50 true continuous
+GROUP BEGIN pwm
+label:PWM Control
 
->> SET pulse_width_us 1200
-<< OK
+PARAM BEGIN pulse_width_us
+type:deco/int
+access:rw
+min:500
+max:2500
+default:1500
+description:Pulse width in microseconds
+PARAM END
 
->> DO center
-<< OK
+PARAM BEGIN frequency_hz
+type:deco/int
+access:rw
+min:50
+max:400
+default:50
+description:PWM frequency in Hz
+PARAM END
 
->> STREAM position START
-<< OK
-<< DATA position 1487.3
-<< DATA position 1488.1
-<< DATA position 1489.0
+PARAM BEGIN enabled
+type:deco/bool
+access:rw
+default:true
+description:Enable PWM output
+PARAM END
 
->> STREAM position STOP
-<< OK
+PARAM BEGIN mode
+type:deco/enum
+access:rw
+default:continuous
+options:continuous single sweep
+description:Operating mode
+PARAM END
 
->> STATUS
-<< OK "PWM enabled at 1200us, 50Hz, continuous mode."
+PARAM BEGIN schematic
+type:image/png
+access:r
+watchable:true
+description:Module schematic diagram
+PARAM END
+
+PARAM BEGIN display
+type:image/jpeg
+access:w
+description:Display framebuffer
+PARAM END
+
+ACTION BEGIN center
+description:Move to center position
+ACTION END
+
+ACTION BEGIN sweep
+description:Sweep between two pulse widths in microseconds
+
+ARG BEGIN start_us
+type:deco/int
+min:500
+max:2500
+description:Start pulse width in microseconds
+ARG END
+
+ARG BEGIN end_us
+type:deco/int
+min:500
+max:2500
+description:End pulse width in microseconds
+ARG END
+
+ACTION END
+
+STREAM BEGIN position
+type:deco/float
+description:Live position feedback in microseconds
+STREAM END
+
+GROUP END
+
+GROUP BEGIN info
+label:Module Info
+
+PARAM BEGIN label
+type:deco/string
+access:rw
+default:Servo 1
+description:Channel label
+PARAM END
+
+PARAM BEGIN uptime_s
+type:deco/int
+access:r
+description:Uptime in seconds
+PARAM END
+
+GROUP END
+
+CAPS END
 ```
 
 ---
 
-## Appendix C — Example Session (Binary Stream)
+## Appendix C — Example Session (Servo Tester)
 
 ```
 >> CAPS
 << CAPS BEGIN
-<< TYPE logic_analyzer
-<< NAME "Logic Analyzer"
-<< VERSION 1.0.0
-<< GROUP capture "Capture"
-<< PARAM sample_rate enum rw "20MHz" 1MHz 5MHz 10MHz 20MHz "Sample rate"
-<< PARAM channels int rw 1 8 8 "Active channels"
-<< PARAM trigger_ch int rw 0 7 0 "Trigger channel"
-<< PARAM trigger_edge enum rw "rising" rising falling "Trigger edge"
-<< PARAM samples int rw 1000 50000 50000 "Samples to capture"
-<< ACTION arm "Arm trigger"
-<< ACTION force "Force immediate capture"
-<< STREAM capture binary "Raw capture data"
-<< END GROUP
+<< type:servo_tester
+<< name:Servo Tester
+<< version:2.0.0
+<<
+<< GROUP BEGIN pwm
+<< label:PWM Control
+<<
+<< PARAM BEGIN pulse_width_us
+<< type:deco/int
+<< access:rw
+<< min:500
+<< max:2500
+<< default:1500
+<< description:Pulse width in microseconds
+<< PARAM END
+<<
+<< ...
+<<
 << CAPS END
 
->> GET sample_rate channels trigger_ch trigger_edge samples
-<< OK 20MHz 8 0 rising 50000
+>> GET pulse_width_us
+<< VALUE pulse_width_us 4
+<< 1500
 
->> SET sample_rate 10MHz
+>> SET pulse_width_us 4
+>> 1200
 << OK
 
->> SET samples 10000
+>> DO BEGIN center
+>> DO END
 << OK
 
->> DO arm
+>> DO BEGIN sweep
+>> IN start_us 4
+>> 1000
+>> IN end_us 4
+>> 2000
+>> DO END
 << OK
 
->> STREAM capture START
+>> WATCH schematic
 << OK
-<< STREAM_BEGIN capture 10000
-<< <10000 raw bytes>
-<< STREAM_END a3f1c209
+
+<< CHANGED schematic
+
+>> GET schematic
+<< VALUE schematic 4096
+<< <4096 bytes of PNG data>
+
+>> STREAM position START
+<< OK
+<< DATA position 6
+<< 1487.3
+<< DATA position 6
+<< 1488.1
+
+>> STREAM position STOP
+<< OK
+
+>> SET display 3072
+>> <3072 bytes of JPEG data>
+<< OK
+
+>> STATUS
+<< OK "PWM enabled at 1200us, 50Hz, continuous mode."
 ```
