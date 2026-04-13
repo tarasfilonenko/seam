@@ -1,6 +1,6 @@
 # DECO — Device Description & Control Protocol
 
-**Version**: 2.1.0  
+**Version**: 3.0.0  
 **Encoding**: ASCII / UTF-8  
 **Status**: Draft  
 
@@ -413,7 +413,8 @@ groups in any order they choose.
 PARAM BEGIN <id>
 type:<mime_type>
 access:<r|w|rw>
-description:<text>
+label:<text>
+[description:<text>]
 [default:<value>]
 [min:<value>]
 [max:<value>]
@@ -429,7 +430,8 @@ PARAM END
 |---|---|---|
 | `type` | yes | MIME type of the parameter value |
 | `access` | yes | `r`, `w`, or `rw` |
-| `description` | yes | Human-readable label |
+| `label` | yes | Short human-readable display name |
+| `description` | no | Longer text for tooltip, hint, or footnote |
 | `default` | no | Informational default value |
 | `min` | no | Minimum value — `deco/int` and `deco/float` only |
 | `max` | no | Maximum value — `deco/int` and `deco/float` only |
@@ -446,6 +448,7 @@ live values after `CAPS` before populating their UI.
 PARAM BEGIN pulse_width_us
 type:deco/int
 access:rw
+label:Pulse Width
 min:500
 max:2500
 default:1500
@@ -455,6 +458,7 @@ PARAM END
 PARAM BEGIN enabled
 type:deco/bool
 access:rw
+label:Enabled
 default:true
 description:Enable PWM output
 PARAM END
@@ -462,6 +466,7 @@ PARAM END
 PARAM BEGIN mode
 type:deco/enum
 access:rw
+label:Mode
 default:continuous
 options:continuous single sweep
 description:Operating mode
@@ -470,6 +475,7 @@ PARAM END
 PARAM BEGIN label
 type:deco/string
 access:rw
+label:Label
 default:Servo 1
 description:Channel label
 PARAM END
@@ -477,6 +483,7 @@ PARAM END
 PARAM BEGIN schematic
 type:image/png
 access:r
+label:Schematic
 watchable:true
 description:Module schematic diagram
 PARAM END
@@ -484,6 +491,7 @@ PARAM END
 PARAM BEGIN display
 type:image/jpeg
 access:w
+label:Display
 description:Display framebuffer
 PARAM END
 ```
@@ -494,12 +502,14 @@ PARAM END
 
 ```
 ACTION BEGIN <id>
-description:<text>
+label:<text>
+[description:<text>]
 [enabled:<cel_expression>]
 
 [ARG BEGIN <id>
 type:<mime_type>
-description:<text>
+label:<text>
+[description:<text>]
 [min:<value>]
 [max:<value>]
 [options:<value> ...]
@@ -512,7 +522,8 @@ ACTION END
 
 | Key | Mandatory | Description |
 |---|---|---|
-| `description` | yes | Human-readable label |
+| `label` | yes | Short human-readable display name |
+| `description` | no | Longer text for tooltip, hint, or footnote |
 | `enabled` | no | CEL expression; when false, the host should disable interaction with this action — see Section 14 |
 
 ### 9.2 ARG Fields
@@ -520,7 +531,8 @@ ACTION END
 | Key | Mandatory | Description |
 |---|---|---|
 | `type` | yes | MIME type of the argument value |
-| `description` | yes | Human-readable label |
+| `label` | yes | Short human-readable display name |
+| `description` | no | Longer text for tooltip, hint, or footnote |
 | `min` | no | Minimum value — `deco/int` and `deco/float` only |
 | `max` | no | Maximum value — `deco/int` and `deco/float` only |
 | `options` | no | Space-separated option list — `deco/enum` only |
@@ -533,14 +545,17 @@ or a `STREAM`. See Section 5.4 for the `DO` wire protocol.
 
 ```
 ACTION BEGIN center
+label:Center
 description:Move to center position
 ACTION END
 
 ACTION BEGIN sweep
+label:Sweep
 description:Sweep between two pulse widths in microseconds
 
 ARG BEGIN start_us
 type:deco/int
+label:Start
 min:500
 max:2500
 description:Start pulse width in microseconds
@@ -548,6 +563,7 @@ ARG END
 
 ARG BEGIN end_us
 type:deco/int
+label:End
 min:500
 max:2500
 description:End pulse width in microseconds
@@ -556,10 +572,12 @@ ARG END
 ACTION END
 
 ACTION BEGIN load_frame
+label:Load Frame
 description:Load JPEG image into display framebuffer
 
 ARG BEGIN frame
 type:image/jpeg
+label:Frame
 description:Frame data
 ARG END
 
@@ -573,7 +591,8 @@ ACTION END
 ```
 STREAM BEGIN <id>
 type:<mime_type>
-description:<text>
+label:<text>
+[description:<text>]
 [enabled:<cel_expression>]
 STREAM END
 ```
@@ -581,7 +600,8 @@ STREAM END
 | Key | Mandatory | Description |
 |---|---|---|
 | `type` | yes | MIME type of emitted values |
-| `description` | yes | Human-readable label |
+| `label` | yes | Short human-readable display name |
+| `description` | no | Longer text for tooltip, hint, or footnote |
 | `enabled` | no | CEL expression; when false, the host should not start this stream — see Section 14 |
 
 Any MIME type may be used, including `image/*` and `application/octet-stream`.
@@ -591,11 +611,13 @@ Any MIME type may be used, including `image/*` and `application/octet-stream`.
 ```
 STREAM BEGIN position
 type:deco/float
+label:Position
 description:Live position feedback in microseconds
 STREAM END
 
 STREAM BEGIN capture
 type:application/octet-stream
+label:Capture
 description:Raw capture data
 STREAM END
 ```
@@ -766,6 +788,7 @@ enabled:mode == "sweep"
 PARAM BEGIN start_us
 type:deco/int
 access:rw
+label:Start
 min:500
 max:2500
 description:Sweep start in microseconds
@@ -774,6 +797,7 @@ PARAM END
 PARAM BEGIN end_us
 type:deco/int
 access:rw
+label:End
 min:500
 max:2500
 enabled:start_us < end_us
@@ -879,7 +903,9 @@ the DECO protocol version. Protocol version is tracked in this document.
 
 ### Changelog
 
-**2.1.0**
+**3.0.0**
+- `label:` replaces `description:` as the mandatory short display string on `PARAM`, `ACTION`, `STREAM`, and `ARG` blocks — consistent with `GROUP` which has always used `label:`
+- `description:` is now optional on all block types; intended for tooltip, hint, or footnote text
 - `enabled:<cel_expression>` optional field added to `GROUP`, `PARAM`, `ACTION`, and `STREAM` blocks
 - CEL (Common Expression Language) used for conditional enabling; the host evaluates expressions against current parameter values keyed by param id
 - When a `GROUP` `enabled:` is false, all items in the group are treated as disabled regardless of their own `enabled:` expressions
@@ -925,11 +951,13 @@ label:Readings
 PARAM BEGIN temp_c
 type:deco/float
 access:r
+label:Temperature
 description:Temperature in Celsius
 PARAM END
 
 STREAM BEGIN temp
 type:deco/float
+label:Temperature
 description:Live temperature stream
 STREAM END
 
@@ -954,6 +982,7 @@ label:PWM Control
 PARAM BEGIN pulse_width_us
 type:deco/int
 access:rw
+label:Pulse Width
 min:500
 max:2500
 default:1500
@@ -963,6 +992,7 @@ PARAM END
 PARAM BEGIN frequency_hz
 type:deco/int
 access:rw
+label:Frequency
 min:50
 max:400
 default:50
@@ -972,6 +1002,7 @@ PARAM END
 PARAM BEGIN enabled
 type:deco/bool
 access:rw
+label:Enabled
 default:true
 description:Enable PWM output
 PARAM END
@@ -979,6 +1010,7 @@ PARAM END
 PARAM BEGIN mode
 type:deco/enum
 access:rw
+label:Mode
 default:continuous
 options:continuous single sweep
 description:Operating mode
@@ -987,6 +1019,7 @@ PARAM END
 PARAM BEGIN schematic
 type:image/png
 access:r
+label:Schematic
 watchable:true
 description:Module schematic diagram
 PARAM END
@@ -994,18 +1027,22 @@ PARAM END
 PARAM BEGIN display
 type:image/jpeg
 access:w
+label:Display
 description:Display framebuffer
 PARAM END
 
 ACTION BEGIN center
+label:Center
 description:Move to center position
 ACTION END
 
 ACTION BEGIN sweep
+label:Sweep
 description:Sweep between two pulse widths in microseconds
 
 ARG BEGIN start_us
 type:deco/int
+label:Start
 min:500
 max:2500
 description:Start pulse width in microseconds
@@ -1013,6 +1050,7 @@ ARG END
 
 ARG BEGIN end_us
 type:deco/int
+label:End
 min:500
 max:2500
 description:End pulse width in microseconds
@@ -1022,6 +1060,7 @@ ACTION END
 
 STREAM BEGIN position
 type:deco/float
+label:Position
 description:Live position feedback in microseconds
 STREAM END
 
@@ -1033,6 +1072,7 @@ label:Module Info
 PARAM BEGIN label
 type:deco/string
 access:rw
+label:Label
 default:Servo 1
 description:Channel label
 PARAM END
@@ -1040,6 +1080,7 @@ PARAM END
 PARAM BEGIN uptime_s
 type:deco/int
 access:r
+label:Uptime
 description:Uptime in seconds
 PARAM END
 
@@ -1065,6 +1106,7 @@ CAPS END
 << PARAM BEGIN pulse_width_us
 << type:deco/int
 << access:rw
+<< label:Pulse Width
 << min:500
 << max:2500
 << default:1500
