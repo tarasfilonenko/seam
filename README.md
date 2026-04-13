@@ -1,6 +1,6 @@
 # DECO — Device Description & Control Protocol
 
-**Version**: 2.0.0  
+**Version**: 2.1.0  
 **Encoding**: ASCII / UTF-8  
 **Status**: Draft  
 
@@ -385,6 +385,7 @@ All three are mandatory and must appear before any `GROUP BEGIN`.
 ```
 GROUP BEGIN <id>
 label:<display_label>
+[enabled:<cel_expression>]
 
 PARAM BEGIN ...
 ACTION BEGIN ...
@@ -396,6 +397,7 @@ GROUP END
 | Key | Mandatory | Description |
 |---|---|---|
 | `label` | yes | Human-readable group label |
+| `enabled` | no | CEL expression; when false, all items in the group are disabled — see Section 14 |
 
 Groups organise parameters, actions, and streams into logical sections. All `PARAM`,
 `ACTION`, and `STREAM` declarations must appear inside a group. Empty groups are valid.
@@ -417,6 +419,7 @@ description:<text>
 [max:<value>]
 [options:<value> ...]
 [watchable:true]
+[enabled:<cel_expression>]
 PARAM END
 ```
 
@@ -432,6 +435,7 @@ PARAM END
 | `max` | no | Maximum value — `deco/int` and `deco/float` only |
 | `options` | no | Space-separated option list — `deco/enum` only |
 | `watchable` | no | `true` — host may subscribe via `WATCH` |
+| `enabled` | no | CEL expression; when false, the host should disable interaction with this parameter — see Section 14 |
 
 **Note on defaults:** The `default` field is informational. Hosts should always `GET`
 live values after `CAPS` before populating their UI.
@@ -491,6 +495,7 @@ PARAM END
 ```
 ACTION BEGIN <id>
 description:<text>
+[enabled:<cel_expression>]
 
 [ARG BEGIN <id>
 type:<mime_type>
@@ -508,6 +513,7 @@ ACTION END
 | Key | Mandatory | Description |
 |---|---|---|
 | `description` | yes | Human-readable label |
+| `enabled` | no | CEL expression; when false, the host should disable interaction with this action — see Section 14 |
 
 ### 9.2 ARG Fields
 
@@ -568,6 +574,7 @@ ACTION END
 STREAM BEGIN <id>
 type:<mime_type>
 description:<text>
+[enabled:<cel_expression>]
 STREAM END
 ```
 
@@ -575,6 +582,7 @@ STREAM END
 |---|---|---|
 | `type` | yes | MIME type of emitted values |
 | `description` | yes | Human-readable label |
+| `enabled` | no | CEL expression; when false, the host should not start this stream — see Section 14 |
 
 Any MIME type may be used, including `image/*` and `application/octet-stream`.
 
@@ -724,7 +732,60 @@ CHANGED pulse_width_us
 
 ---
 
-## 14. Error Codes
+## 14. Conditional Enabling (`enabled:`)
+
+The optional `enabled:` field applies to `GROUP`, `PARAM`, `ACTION`, and `STREAM` blocks:
+
+```
+[enabled:<cel_expression>]
+```
+
+| Key | Mandatory | Description |
+|---|---|---|
+| `enabled` | no | A CEL expression evaluated against current parameter values. When false, the host should prevent interaction with this item. Omitting `enabled` is equivalent to `enabled:true`. |
+
+**Semantics:**
+
+- The expression is a [CEL (Common Expression Language)](https://cel.dev) string evaluated by the host, with current parameter values as context, keyed by param id. See the [CEL language definition](https://github.com/google/cel-spec/blob/master/doc/langdef.md) for supported operators and syntax.
+- When a `GROUP` `enabled:` evaluates to false, all items within the group are considered disabled regardless of their own `enabled:` expressions.
+- When `enabled:` is false, the host should not send `GET`, `SET`, `DO`, or `STREAM` commands targeting the item.
+- The device may return `ERR BUSY` or `ERR FAILED` if a command is received for a disabled item, but correct host behaviour makes this unnecessary.
+- The host is responsible for keeping `enabled:` expressions up to date. Strategies such as re-evaluating on `CHANGED` notifications, polling, or a combination of both are all valid — the protocol does not mandate a specific approach.
+
+> **Recommendation:** Parameters referenced in `enabled:` expressions should be declared `watchable:true` to allow the host to react promptly to value changes. This is not enforced by the protocol.
+
+**Python host implementation:** The `cel-python` package (`pip install cel-python`) provides a pure Python CEL evaluator suitable for the host application.
+
+**Example:**
+
+```
+GROUP BEGIN sweep
+label:Sweep Control
+enabled:mode == "sweep"
+
+PARAM BEGIN start_us
+type:deco/int
+access:rw
+min:500
+max:2500
+description:Sweep start in microseconds
+PARAM END
+
+PARAM BEGIN end_us
+type:deco/int
+access:rw
+min:500
+max:2500
+enabled:start_us < end_us
+description:Sweep end in microseconds
+PARAM END
+
+GROUP END
+```
+
+---
+
+## 15. Error Codes
 
 | Code | Meaning |
 |---|---|
@@ -747,7 +808,7 @@ CHANGED pulse_width_us
 
 ---
 
-## 15. USB CDC-ACM Identification Convention
+## 16. USB CDC-ACM Identification Convention
 
 When a DECO device uses USB CDC-ACM as its transport, it should set the USB manufacturer
 string to `"DECO"`. This allows host applications and watcher scripts to identify DECO
@@ -769,7 +830,7 @@ The `USB_PRODUCT` string should match the `name` field in CAPS exactly.
 
 ---
 
-## 16. Device Implementation Requirements
+## 17. Device Implementation Requirements
 
 A conforming DECO device must:
 
@@ -788,7 +849,7 @@ A conforming DECO device should:
 
 ---
 
-## 17. Host Implementation Requirements
+## 18. Host Implementation Requirements
 
 A conforming DECO host must:
 
@@ -799,10 +860,13 @@ A conforming DECO host must:
 - Issue `GET <id>` upon receiving a `CHANGED <id>` notification to retrieve the new value
 - Not send a new command until the previous command's response has been received,
   except when active streams are running
+- Evaluate all `enabled:` CEL expressions after the initial `GET` sweep and after each
+  `CHANGED` notification, and suppress interaction with any item whose expression
+  evaluates to false
 
 ---
 
-## 18. Versioning
+## 19. Versioning
 
 This specification follows [Semantic Versioning](https://semver.org/).
 
@@ -814,6 +878,13 @@ The `version` field in a CAPS response reflects the **device firmware version**,
 the DECO protocol version. Protocol version is tracked in this document.
 
 ### Changelog
+
+**2.1.0**
+- `enabled:<cel_expression>` optional field added to `GROUP`, `PARAM`, `ACTION`, and `STREAM` blocks
+- CEL (Common Expression Language) used for conditional enabling; the host evaluates expressions against current parameter values keyed by param id
+- When a `GROUP` `enabled:` is false, all items in the group are treated as disabled regardless of their own `enabled:` expressions
+- Host must not send `GET`, `SET`, `DO`, or `STREAM` commands targeting a disabled item
+- Host must re-evaluate `enabled:` expressions after the initial `GET` sweep and after each `CHANGED` notification
 
 **2.0.0**
 - Universal block structure: `KEYWORD BEGIN [id]` / `KEYWORD END` throughout
