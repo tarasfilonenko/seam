@@ -1,4 +1,4 @@
-# DECO — Device Description & Control Protocol
+# SEAM — Serial Enumeration and Action Model
 
 **Version**: 3.0.0  
 **Encoding**: ASCII / UTF-8  
@@ -8,19 +8,19 @@
 
 | Repo | Description |
 |---|---|
-| [deco-host](https://github.com/tarasfilonenko/deco-host) | Generic desktop app for any DECO device |
-| [modbench](https://github.com/tarasfilonenko/modbench) | ModBench hardware toolkit — an example DECO implementation |
+| [seam-host](https://github.com/tarasfilonenko/seam-host) | Generic desktop app for any SEAM device |
+| [modbench](https://github.com/tarasfilonenko/modbench) | ModBench hardware toolkit — an example SEAM implementation |
 
 ---
 
 ## 1. Overview
 
-DECO is a lightweight, human-readable protocol that allows any device — microcontroller,
+SEAM is a lightweight, human-readable protocol that allows any device — microcontroller,
 single-board computer, or software process — to describe its capabilities to a host over
 a serial connection. The host can then discover what the device can do and interact with
 it dynamically, without needing prior knowledge of the device type.
 
-A DECO device exposes:
+A SEAM device exposes:
 - **Parameters** — named values that can be read and/or written; types are expressed as MIME types
 - **Actions** — named functions that can be invoked, with typed arguments
 - **Streams** — named data channels that emit values continuously
@@ -43,14 +43,14 @@ or code generation is required to support a new device type.
 |---|---|---|---|---|
 | Firmata | Pin modes only | No (binary) | No | No |
 | Electric UI | Variable list | No (binary) | Callback only | No |
-| DECO | Full: params, actions, streams, groups | **Yes** | **Yes** | **Yes** |
+| SEAM | Full: params, actions, streams, groups | **Yes** | **Yes** | **Yes** |
 
 ---
 
 ## 2. Transport
 
-DECO operates over any reliable byte stream. The reference transport is **USB CDC-ACM**
-(virtual serial port), but DECO may also be used over:
+SEAM operates over any reliable byte stream. The reference transport is **USB CDC-ACM**
+(virtual serial port), but SEAM may also be used over:
 
 - Hardware UART
 - BLE serial (SPP / NUS)
@@ -63,7 +63,7 @@ Transport-specific considerations:
 - **UART**: both sides must agree on baud rate out of band
 - **TCP**: the connection itself provides framing; no additional wrapper needed
 
-DECO does not define device discovery or addressing. Those are handled by the transport
+SEAM does not define device discovery or addressing. Those are handled by the transport
 or the host application. For USB CDC-ACM, the host enumerates available ports and opens
 them individually.
 
@@ -71,7 +71,7 @@ them individually.
 
 ## 3. Line Format
 
-All DECO communication uses text lines. Every line follows this structure:
+All SEAM communication uses text lines. Every line follows this structure:
 
 ```
 <KEYWORD> [<arg1> [<arg2> ...]] \r\n
@@ -94,7 +94,7 @@ Rules:
 
 ## 4. Block Structure
 
-All DECO structural declarations follow a universal pattern:
+All SEAM structural declarations follow a universal pattern:
 
 ```
 KEYWORD BEGIN [id]
@@ -260,8 +260,8 @@ Example:
 << OK
 ```
 
-Argument data uses the same encoding as `SET` for the declared MIME type. `deco/` scalar
-values are represented as ASCII text (e.g. `1000` for a `deco/int`). Arguments may be
+Argument data uses the same encoding as `SET` for the declared MIME type. `seam/` scalar
+values are represented as ASCII text (e.g. `1000` for a `seam/int`). Arguments may be
 sent in any order — the device matches them by name against the ACTION declaration.
 All declared arguments are required; omitting any results in `ERR BAD_ARGS`.
 
@@ -433,9 +433,9 @@ PARAM END
 | `label` | yes | Short human-readable display name |
 | `description` | no | Longer text for tooltip, hint, or footnote |
 | `default` | no | Informational default value |
-| `min` | no | Minimum value — `deco/int` and `deco/float` only |
-| `max` | no | Maximum value — `deco/int` and `deco/float` only |
-| `options` | no | Space-separated option list — `deco/enum` only |
+| `min` | no | Minimum value — `seam/int` and `seam/float` only |
+| `max` | no | Maximum value — `seam/int` and `seam/float` only |
+| `options` | no | Space-separated option list — `seam/enum` only |
 | `watchable` | no | `true` — host may subscribe via `WATCH` |
 | `enabled` | no | CEL expression; when false, the host should disable interaction with this parameter — see Section 14 |
 
@@ -446,7 +446,7 @@ live values after `CAPS` before populating their UI.
 
 ```
 PARAM BEGIN pulse_width_us
-type:deco/int
+type:seam/int
 access:rw
 label:Pulse Width
 min:500
@@ -456,7 +456,7 @@ description:Pulse width in microseconds
 PARAM END
 
 PARAM BEGIN enabled
-type:deco/bool
+type:seam/bool
 access:rw
 label:Enabled
 default:true
@@ -464,7 +464,7 @@ description:Enable PWM output
 PARAM END
 
 PARAM BEGIN mode
-type:deco/enum
+type:seam/enum
 access:rw
 label:Mode
 default:continuous
@@ -473,7 +473,7 @@ description:Operating mode
 PARAM END
 
 PARAM BEGIN label
-type:deco/string
+type:seam/string
 access:rw
 label:Label
 default:Servo 1
@@ -533,9 +533,9 @@ ACTION END
 | `type` | yes | MIME type of the argument value |
 | `label` | yes | Short human-readable display name |
 | `description` | no | Longer text for tooltip, hint, or footnote |
-| `min` | no | Minimum value — `deco/int` and `deco/float` only |
-| `max` | no | Maximum value — `deco/int` and `deco/float` only |
-| `options` | no | Space-separated option list — `deco/enum` only |
+| `min` | no | Minimum value — `seam/int` and `seam/float` only |
+| `max` | no | Maximum value — `seam/int` and `seam/float` only |
+| `options` | no | Space-separated option list — `seam/enum` only |
 
 Any MIME type may appear in `type`, including `image/*` and `application/octet-stream`.
 If an action produces output, model it as a `PARAM` (readable after the action completes)
@@ -554,7 +554,7 @@ label:Sweep
 description:Sweep between two pulse widths in microseconds
 
 ARG BEGIN start_us
-type:deco/int
+type:seam/int
 label:Start
 min:500
 max:2500
@@ -562,7 +562,7 @@ description:Start pulse width in microseconds
 ARG END
 
 ARG BEGIN end_us
-type:deco/int
+type:seam/int
 label:End
 min:500
 max:2500
@@ -610,7 +610,7 @@ Any MIME type may be used, including `image/*` and `application/octet-stream`.
 
 ```
 STREAM BEGIN position
-type:deco/float
+type:seam/float
 label:Position
 description:Live position feedback in microseconds
 STREAM END
@@ -628,18 +628,18 @@ STREAM END
 
 The `type` field in `PARAM`, `ACTION`, and `STREAM` blocks uses MIME types throughout.
 
-### 11.1 DECO Informal Namespace
+### 11.1 SEAM Informal Namespace
 
-DECO defines a `deco/` informal namespace for primitive scalar types. These are not
-registered MIME types — they are DECO-internal.
+SEAM defines a `seam/` informal namespace for primitive scalar types. These are not
+registered MIME types — they are SEAM-internal.
 
 | Type | Description |
 |---|---|
-| `deco/int` | Integer, represented as decimal ASCII |
-| `deco/float` | Floating point, represented as decimal ASCII |
-| `deco/bool` | Boolean — ASCII `true` or `false` |
-| `deco/string` | UTF-8 string |
-| `deco/enum` | One of a declared set of string options |
+| `seam/int` | Integer, represented as decimal ASCII |
+| `seam/float` | Floating point, represented as decimal ASCII |
+| `seam/bool` | Boolean — ASCII `true` or `false` |
+| `seam/string` | UTF-8 string |
+| `seam/enum` | One of a declared set of string options |
 
 ### 11.2 Standard MIME Types
 
@@ -834,20 +834,20 @@ GROUP END
 
 ## 16. USB CDC-ACM Identification Convention
 
-When a DECO device uses USB CDC-ACM as its transport, it should set the USB manufacturer
-string to `"DECO"`. This allows host applications and watcher scripts to identify DECO
+When a SEAM device uses USB CDC-ACM as its transport, it should set the USB manufacturer
+string to `"SEAM"`. This allows host applications and watcher scripts to identify SEAM
 devices by scanning serial ports without opening them.
 
 ```c
-#define USB_MANUFACTURER  "DECO"           // marks this as a DECO device
+#define USB_MANUFACTURER  "SEAM"           // marks this as a SEAM device
 #define USB_PRODUCT       "Servo Tester"   // human-readable, should match name in CAPS
 ```
 
-This convention is optional — DECO works over any transport and the protocol itself has
+This convention is optional — SEAM works over any transport and the protocol itself has
 no dependency on USB descriptor strings. However, implementing it enables:
 
-- Automatic device discovery by DECO Host and similar tools
-- Filtering DECO ports from unrelated serial devices
+- Automatic device discovery by SEAM Host and similar tools
+- Filtering SEAM ports from unrelated serial devices
 - Instant display of a human-readable name before CAPS is received
 
 The `USB_PRODUCT` string should match the `name` field in CAPS exactly.
@@ -856,7 +856,7 @@ The `USB_PRODUCT` string should match the `name` field in CAPS exactly.
 
 ## 17. Device Implementation Requirements
 
-A conforming DECO device must:
+A conforming SEAM device must:
 
 - Respond to `CAPS\r\n` within **500ms**, at any time after the connection is opened
 - Return `ERR UNKNOWN_CMD\r\n` for any unrecognized command — never hang or ignore
@@ -865,7 +865,7 @@ A conforming DECO device must:
 - Reset internal streaming and watch state cleanly when the connection is closed and reopened
 - Accept any baud rate if using USB CDC-ACM (baud rate is irrelevant for CDC-ACM)
 
-A conforming DECO device should:
+A conforming SEAM device should:
 
 - Respond to commands within **100ms** under normal conditions
 - Declare sensible `default` values in CAPS where applicable
@@ -875,7 +875,7 @@ A conforming DECO device should:
 
 ## 18. Host Implementation Requirements
 
-A conforming DECO host must:
+A conforming SEAM host must:
 
 - Send `CAPS` immediately after opening a connection
 - Perform a `GET` sweep of all readable parameters after `CAPS` to obtain live values
@@ -899,7 +899,7 @@ This specification follows [Semantic Versioning](https://semver.org/).
 - **PATCH**: clarifications, corrections, no wire format change
 
 The `version` field in a CAPS response reflects the **device firmware version**, not
-the DECO protocol version. Protocol version is tracked in this document.
+the SEAM protocol version. Protocol version is tracked in this document.
 
 ### Changelog
 
@@ -916,7 +916,7 @@ the DECO protocol version. Protocol version is tracked in this document.
 - Universal block structure: `KEYWORD BEGIN [id]` / `KEYWORD END` throughout
 - CAPS, GROUP, PARAM, ACTION, STREAM all follow the same block pattern
 - Identity fields use `key:value` format (`type`, `name`, `version`), replacing `TYPE`, `NAME`, `VERSION` keyword lines
-- MIME type system replaces primitive type names; `deco/` informal namespace for scalar primitives
+- MIME type system replaces primitive type names; `seam/` informal namespace for scalar primitives
 - `image/*` and arbitrary MIME types supported in `PARAM`, `ACTION` args, and `STREAM`
 - Unified frame format: `KEYWORD <id> <length>\r\n<data>\r\n` for `VALUE`, `SET`, `DATA`, `ARG`
 - `VALUE <id> <length>` replaces `OK <value>` for GET responses
@@ -937,7 +937,7 @@ the DECO protocol version. Protocol version is tracked in this document.
 
 ## Appendix A — Minimal CAPS Example
 
-The smallest valid DECO CAPS response:
+The smallest valid SEAM CAPS response:
 
 ```
 CAPS BEGIN
@@ -949,14 +949,14 @@ GROUP BEGIN readings
 label:Readings
 
 PARAM BEGIN temp_c
-type:deco/float
+type:seam/float
 access:r
 label:Temperature
 description:Temperature in Celsius
 PARAM END
 
 STREAM BEGIN temp
-type:deco/float
+type:seam/float
 label:Temperature
 description:Live temperature stream
 STREAM END
@@ -980,7 +980,7 @@ GROUP BEGIN pwm
 label:PWM Control
 
 PARAM BEGIN pulse_width_us
-type:deco/int
+type:seam/int
 access:rw
 label:Pulse Width
 min:500
@@ -990,7 +990,7 @@ description:Pulse width in microseconds
 PARAM END
 
 PARAM BEGIN frequency_hz
-type:deco/int
+type:seam/int
 access:rw
 label:Frequency
 min:50
@@ -1000,7 +1000,7 @@ description:PWM frequency in Hz
 PARAM END
 
 PARAM BEGIN enabled
-type:deco/bool
+type:seam/bool
 access:rw
 label:Enabled
 default:true
@@ -1008,7 +1008,7 @@ description:Enable PWM output
 PARAM END
 
 PARAM BEGIN mode
-type:deco/enum
+type:seam/enum
 access:rw
 label:Mode
 default:continuous
@@ -1041,7 +1041,7 @@ label:Sweep
 description:Sweep between two pulse widths in microseconds
 
 ARG BEGIN start_us
-type:deco/int
+type:seam/int
 label:Start
 min:500
 max:2500
@@ -1049,7 +1049,7 @@ description:Start pulse width in microseconds
 ARG END
 
 ARG BEGIN end_us
-type:deco/int
+type:seam/int
 label:End
 min:500
 max:2500
@@ -1059,7 +1059,7 @@ ARG END
 ACTION END
 
 STREAM BEGIN position
-type:deco/float
+type:seam/float
 label:Position
 description:Live position feedback in microseconds
 STREAM END
@@ -1070,7 +1070,7 @@ GROUP BEGIN info
 label:Module Info
 
 PARAM BEGIN label
-type:deco/string
+type:seam/string
 access:rw
 label:Label
 default:Servo 1
@@ -1078,7 +1078,7 @@ description:Channel label
 PARAM END
 
 PARAM BEGIN uptime_s
-type:deco/int
+type:seam/int
 access:r
 label:Uptime
 description:Uptime in seconds
@@ -1104,7 +1104,7 @@ CAPS END
 << label:PWM Control
 <<
 << PARAM BEGIN pulse_width_us
-<< type:deco/int
+<< type:seam/int
 << access:rw
 << label:Pulse Width
 << min:500
