@@ -1,6 +1,6 @@
 # SEAM — Serial Enumeration and Action Model
 
-**Version**: 3.0.0  
+**Version**: 4.0.0  
 **Encoding**: ASCII / UTF-8  
 **Status**: Draft  
 
@@ -26,7 +26,7 @@ A SEAM device exposes:
 - **Streams** — named data channels that emit values continuously
 
 The host queries capabilities once on connect, then uses a small set of commands
-(`GET`, `SET`, `DO`, `STREAM`) to interact with the device. No host-side configuration
+(`GET`, `SET`, `DO`) to interact with the device. No host-side configuration
 or code generation is required to support a new device type.
 
 ### Design goals
@@ -35,7 +35,7 @@ or code generation is required to support a new device type.
 - **Self-describing** — the device tells the host everything; the host needs no prior knowledge
 - **Transport-agnostic** — designed for USB CDC-ACM but works over any byte stream
 - **MCU-friendly** — implementable on a microcontroller with minimal RAM and no dynamic allocation
-- **Minimal** — one handshake command (`CAPS`), six interaction commands
+- **Minimal** — one handshake command (`CAPS`), five interaction commands
 
 ### Relationship to existing protocols
 
@@ -289,33 +289,7 @@ Example:
 
 ---
 
-### 5.6 `STREAM`
-
-Start or stop a declared data stream.
-
-```
-STREAM <id> START\r\n
-STREAM <id> STOP\r\n
-```
-
-Response:
-```
-OK\r\n
-```
-
-Errors:
-```
-ERR UNKNOWN_STREAM <id>\r\n
-ERR ALREADY_STREAMING <id>\r\n
-ERR NOT_STREAMING <id>\r\n
-```
-
-Once started, the device emits `DATA` frames asynchronously until `STREAM <id> STOP` is
-received — see Section 12.3.
-
----
-
-### 5.7 `WATCH` / `UNWATCH`
+### 5.6 `WATCH` / `UNWATCH`
 
 Subscribe to or unsubscribe from change notifications for a watchable parameter. The device
 emits a `CHANGED` line asynchronously whenever the value changes — see Section 13.
@@ -602,7 +576,7 @@ STREAM END
 | `type` | yes | MIME type of emitted values |
 | `label` | yes | Short human-readable display name |
 | `description` | no | Longer text for tooltip, hint, or footnote |
-| `enabled` | no | CEL expression; when false, the host should not start this stream — see Section 14 |
+| `enabled` | no | CEL expression; when false, the host should not display or interact with this stream — see Section 14 |
 
 Any MIME type may be used, including `image/*` and `application/octet-stream`.
 
@@ -711,8 +685,9 @@ field defines the data boundary — no closing marker is needed.
 
 ### 12.3 DATA — Stream Frames
 
-Once a stream is started with `STREAM <id> START`, the device emits frames asynchronously
-until `STREAM <id> STOP` is received:
+The device emits `DATA` frames asynchronously for any active stream. Stream lifecycle is
+controlled entirely by the device — typically via `ACTION` invocations declared in CAPS,
+or automatically on connect for always-on sensors:
 
 ```
 DATA position 6
@@ -770,7 +745,7 @@ The optional `enabled:` field applies to `GROUP`, `PARAM`, `ACTION`, and `STREAM
 
 - The expression is a [CEL (Common Expression Language)](https://cel.dev) string evaluated by the host, with current parameter values as context, keyed by param id. See the [CEL language definition](https://github.com/google/cel-spec/blob/master/doc/langdef.md) for supported operators and syntax.
 - When a `GROUP` `enabled:` evaluates to false, all items within the group are considered disabled regardless of their own `enabled:` expressions.
-- When `enabled:` is false, the host should not send `GET`, `SET`, `DO`, or `STREAM` commands targeting the item.
+- When `enabled:` is false, the host should not send `GET`, `SET`, or `DO` commands targeting the item.
 - The device may return `ERR BUSY` or `ERR FAILED` if a command is received for a disabled item, but correct host behaviour makes this unnecessary.
 - The host is responsible for keeping `enabled:` expressions up to date. Strategies such as re-evaluating on `CHANGED` notifications, polling, or a combination of both are all valid — the protocol does not mandate a specific approach.
 
@@ -816,7 +791,6 @@ GROUP END
 | `UNKNOWN_CMD` | Unrecognized command keyword |
 | `UNKNOWN_PARAM` | No parameter with that ID |
 | `UNKNOWN_ACTION` | No action with that ID |
-| `UNKNOWN_STREAM` | No stream with that ID |
 | `NOT_READABLE` | Parameter is write-only |
 | `NOT_WRITABLE` | Parameter is read-only |
 | `OUT_OF_RANGE` | Numeric value outside declared min/max |
@@ -824,8 +798,6 @@ GROUP END
 | `BAD_ARGS` | Unknown argument name, missing required argument, or value invalid for declared type |
 | `BUSY` | Device cannot accept this command right now |
 | `FAILED` | Action attempted but failed (with optional message) |
-| `ALREADY_STREAMING` | `STREAM START` issued while already streaming |
-| `NOT_STREAMING` | `STREAM STOP` issued while not streaming |
 | `NOT_WATCHABLE` | `WATCH` issued for a param not declared `watchable:true` |
 | `ALREADY_WATCHING` | `WATCH` issued while already subscribed |
 | `NOT_WATCHING` | `UNWATCH` issued while not subscribed |
@@ -860,8 +832,8 @@ A conforming SEAM device must:
 
 - Respond to `CAPS\r\n` within **500ms**, at any time after the connection is opened
 - Return `ERR UNKNOWN_CMD\r\n` for any unrecognized command — never hang or ignore
-- Never send unsolicited output except `DATA` frames for active streams and `CHANGED`
-  lines for active `WATCH` subscriptions
+- Never send unsolicited output except `DATA` frames and `CHANGED` lines for active
+  `WATCH` subscriptions
 - Reset internal streaming and watch state cleanly when the connection is closed and reopened
 - Accept any baud rate if using USB CDC-ACM (baud rate is irrelevant for CDC-ACM)
 
@@ -903,13 +875,19 @@ the SEAM protocol version. Protocol version is tracked in this document.
 
 ### Changelog
 
+**4.0.0**
+- `STREAM <id> START` and `STREAM <id> STOP` commands removed — stream lifecycle is now entirely the device's responsibility
+- Devices that want host-controlled stream start/stop declare `ACTION` blocks for that purpose; the host invokes them via `DO` like any other action
+- Devices may begin emitting `DATA` frames at any time after the CAPS exchange without any prior command from the host (auto-streaming)
+- Removed error codes: `UNKNOWN_STREAM`, `ALREADY_STREAMING`, `NOT_STREAMING`
+- Host must not send `GET`, `SET`, or `DO` commands targeting a disabled item (was `GET`, `SET`, `DO`, or `STREAM`)
+
 **3.0.0**
 - `label:` replaces `description:` as the mandatory short display string on `PARAM`, `ACTION`, `STREAM`, and `ARG` blocks — consistent with `GROUP` which has always used `label:`
 - `description:` is now optional on all block types; intended for tooltip, hint, or footnote text
 - `enabled:<cel_expression>` optional field added to `GROUP`, `PARAM`, `ACTION`, and `STREAM` blocks
 - CEL (Common Expression Language) used for conditional enabling; the host evaluates expressions against current parameter values keyed by param id
 - When a `GROUP` `enabled:` is false, all items in the group are treated as disabled regardless of their own `enabled:` expressions
-- Host must not send `GET`, `SET`, `DO`, or `STREAM` commands targeting a disabled item
 - Host must re-evaluate `enabled:` expressions after the initial `GET` sweep and after each `CHANGED` notification
 
 **2.0.0**
@@ -1064,6 +1042,16 @@ label:Position
 description:Live position feedback in microseconds
 STREAM END
 
+ACTION BEGIN start_position
+label:Start Position Stream
+description:Begin streaming live position feedback
+ACTION END
+
+ACTION BEGIN stop_position
+label:Stop Position Stream
+description:Stop streaming live position feedback
+ACTION END
+
 GROUP END
 
 GROUP BEGIN info
@@ -1146,14 +1134,16 @@ CAPS END
 << VALUE schematic 4096
 << <4096 bytes of PNG data>
 
->> STREAM position START
+>> DO BEGIN start_position
+>> DO END
 << OK
 << DATA position 6
 << 1487.3
 << DATA position 6
 << 1488.1
 
->> STREAM position STOP
+>> DO BEGIN stop_position
+>> DO END
 << OK
 
 >> SET display 3072
