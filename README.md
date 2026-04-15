@@ -395,6 +395,7 @@ label:<text>
 [options:<value> ...]
 [flags:<name> ...]
 [watchable:true]
+[persist:true]
 [enabled:<cel_expression>]
 PARAM END
 ```
@@ -413,6 +414,7 @@ PARAM END
 | `options` | no | Space-separated option list — `seam/enum` only |
 | `flags` | no | Space-separated list of flag names — `seam/flags` only; host renders one labeled toggle per name; wire value is space-separated names of the active (true) flags; absent name means false; empty value means no flags set |
 | `watchable` | no | `true` — host may subscribe via `WATCH` |
+| `persist` | no | `true` — host should save this parameter's value and restore it via `SET` on reconnection; only meaningful on params with `access:rw` or `access:w` |
 | `enabled` | no | CEL expression; when false, the host should disable interaction with this parameter — see Section 14 |
 
 **Note on defaults:** The `default` field is informational. Hosts should always `GET`
@@ -428,6 +430,7 @@ label:Pulse Width
 min:500
 max:2500
 default:1500
+persist:true
 description:Pulse width in microseconds
 PARAM END
 
@@ -436,6 +439,7 @@ type:seam/bool
 access:rw
 label:Enabled
 default:true
+persist:true
 description:Enable PWM output
 PARAM END
 
@@ -445,6 +449,7 @@ access:rw
 label:Mode
 default:continuous
 options:continuous single sweep
+persist:true
 description:Operating mode
 PARAM END
 
@@ -477,6 +482,7 @@ access:rw
 label:Enabled Channels
 flags:ch1 ch2 ch3 ch4 ch5 ch6 ch7 ch8 ch9 ch10 ch11 ch12 ch13 ch14 ch15 ch16
 default:
+persist:true
 description:Active servo channels; absent flag means channel is disabled
 PARAM END
 ```
@@ -874,6 +880,8 @@ A conforming SEAM host must:
 - Evaluate all `enabled:` CEL expressions after the initial `GET` sweep and after each
   `CHANGED` notification, and suppress interaction with any item whose expression
   evaluates to false
+- For each param declared `persist:true`, save its value whenever it is read (via `GET`
+  or `CHANGED`) and restore it via `SET` after the initial `GET` sweep on reconnection
 
 ---
 
@@ -889,6 +897,11 @@ The `version` field in a CAPS response reflects the **device firmware version**,
 the SEAM protocol version. Protocol version is tracked in this document.
 
 ### Changelog
+
+**4.2.0**
+- `persist:true` optional field added to `PARAM` blocks
+- When declared, the host saves the parameter's value on each read and restores it via `SET` after the initial `GET` sweep on reconnection
+- Only meaningful on params with `access:rw` or `access:w`
 
 **4.1.0**
 - `trigger:<param_id>` optional field added to `ACTION` blocks
