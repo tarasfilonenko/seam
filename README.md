@@ -393,6 +393,7 @@ label:<text>
 [min:<value>]
 [max:<value>]
 [options:<value> ...]
+[bits:<count>]
 [watchable:true]
 [enabled:<cel_expression>]
 PARAM END
@@ -410,6 +411,7 @@ PARAM END
 | `min` | no | Minimum value — `seam/int` and `seam/float` only |
 | `max` | no | Maximum value — `seam/int` and `seam/float` only |
 | `options` | no | Space-separated option list — `seam/enum` only |
+| `bits` | no | Bit field width as a positive integer — `seam/bits` only; valid range is 0 to 2^N − 1; host renders N individually togglable bits numbered 0 (LSB) to N−1 (MSB) |
 | `watchable` | no | `true` — host may subscribe via `WATCH` |
 | `enabled` | no | CEL expression; when false, the host should disable interaction with this parameter — see Section 14 |
 
@@ -467,6 +469,15 @@ type:image/jpeg
 access:w
 label:Display
 description:Display framebuffer
+PARAM END
+
+PARAM BEGIN config
+type:seam/bits
+access:rw
+label:Config
+bits:16
+default:0
+description:16-bit configuration register
 PARAM END
 ```
 
@@ -616,6 +627,7 @@ registered MIME types — they are SEAM-internal.
 | `seam/bool` | Boolean — ASCII `true` or `false` |
 | `seam/string` | UTF-8 string |
 | `seam/enum` | One of a declared set of string options |
+| `seam/bits` | Bit field — decimal ASCII integer; bit width declared via `bits:` — see Section 8.1 |
 
 ### 11.2 Standard MIME Types
 
