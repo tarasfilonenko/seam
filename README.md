@@ -1192,8 +1192,8 @@ A click on an `image/svg+xml` param produces the following event data:
 
 The ACTION declares whichever args it needs, using these exact names. The host sends
 only the args that are declared — acting as a subset selector over the schema. If the
-ACTION declares an arg name not in this table, the host will not send it; the device
-will receive `ERR BAD_ARGS` on the `DO` call.
+ACTION declares an arg name not in this table, the host will not send it; how the device
+handles the absent argument is its own concern.
 
 ### D.3 CAPS Declaration
 
