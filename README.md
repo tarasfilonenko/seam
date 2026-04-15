@@ -9,7 +9,7 @@
 | Repo | Description |
 |---|---|
 | [seam-host](https://github.com/tarasfilonenko/seam-host) | Generic desktop app for any SEAM device |
-| [modbench](https://github.com/tarasfilonenko/modbench) | ModBench hardware toolkit — an example SEAM implementation |
+| [seam-kit](https://github.com/tarasfilonenko/seam-kit) | SEAM Kit hardware toolkit — an example SEAM implementation |
 
 ---
 
