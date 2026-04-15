@@ -393,6 +393,7 @@ label:<text>
 [min:<value>]
 [max:<value>]
 [options:<value> ...]
+[flags:<name> ...]
 [watchable:true]
 [enabled:<cel_expression>]
 PARAM END
@@ -410,6 +411,7 @@ PARAM END
 | `min` | no | Minimum value — `seam/int` and `seam/float` only |
 | `max` | no | Maximum value — `seam/int` and `seam/float` only |
 | `options` | no | Space-separated option list — `seam/enum` only |
+| `flags` | no | Space-separated list of flag names — `seam/flags` only; host renders one labeled toggle per name; wire value is space-separated names of the active (true) flags; absent name means false; empty value means no flags set |
 | `watchable` | no | `true` — host may subscribe via `WATCH` |
 | `enabled` | no | CEL expression; when false, the host should disable interaction with this parameter — see Section 14 |
 
@@ -467,6 +469,15 @@ type:image/jpeg
 access:w
 label:Display
 description:Display framebuffer
+PARAM END
+
+PARAM BEGIN enabled_channels
+type:seam/flags
+access:rw
+label:Enabled Channels
+flags:ch1 ch2 ch3 ch4 ch5 ch6 ch7 ch8 ch9 ch10 ch11 ch12 ch13 ch14 ch15 ch16
+default:
+description:Active servo channels; absent flag means channel is disabled
 PARAM END
 ```
 
@@ -616,6 +627,7 @@ registered MIME types — they are SEAM-internal.
 | `seam/bool` | Boolean — ASCII `true` or `false` |
 | `seam/string` | UTF-8 string |
 | `seam/enum` | One of a declared set of string options |
+| `seam/flags` | Named flag set — space-separated active flag names; all declared names via `flags:` — see Section 8.1 |
 
 ### 11.2 Standard MIME Types
 
