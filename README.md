@@ -1,6 +1,6 @@
 # SEAM — Serial Enumeration and Action Model
 
-**Version**: 4.0.0  
+**Version**: 4.1.0  
 **Encoding**: ASCII / UTF-8  
 **Status**: Draft  
 
@@ -360,6 +360,7 @@ All three are mandatory and must appear before any `GROUP BEGIN`.
 GROUP BEGIN <id>
 label:<display_label>
 [enabled:<cel_expression>]
+[visible:<cel_expression>]
 
 PARAM BEGIN ...
 ACTION BEGIN ...
@@ -372,6 +373,7 @@ GROUP END
 |---|---|---|
 | `label` | yes | Human-readable group label |
 | `enabled` | no | CEL expression; when false, all items in the group are disabled — see Section 14 |
+| `visible` | no | CEL expression; when false, the host should not render this group or any of its items — see Section 15 |
 
 Groups organise parameters, actions, and streams into logical sections. All `PARAM`,
 `ACTION`, and `STREAM` declarations must appear inside a group. Empty groups are valid.
@@ -395,6 +397,7 @@ label:<text>
 [options:<value> ...]
 [watchable:true]
 [enabled:<cel_expression>]
+[visible:<cel_expression>]
 PARAM END
 ```
 
@@ -412,6 +415,7 @@ PARAM END
 | `options` | no | Space-separated option list — `seam/enum` only |
 | `watchable` | no | `true` — host may subscribe via `WATCH` |
 | `enabled` | no | CEL expression; when false, the host should disable interaction with this parameter — see Section 14 |
+| `visible` | no | CEL expression; when false, the host should not render this parameter — see Section 15 |
 
 **Note on defaults:** The `default` field is informational. Hosts should always `GET`
 live values after `CAPS` before populating their UI.
@@ -479,6 +483,7 @@ ACTION BEGIN <id>
 label:<text>
 [description:<text>]
 [enabled:<cel_expression>]
+[visible:<cel_expression>]
 
 [ARG BEGIN <id>
 type:<mime_type>
@@ -499,6 +504,7 @@ ACTION END
 | `label` | yes | Short human-readable display name |
 | `description` | no | Longer text for tooltip, hint, or footnote |
 | `enabled` | no | CEL expression; when false, the host should disable interaction with this action — see Section 14 |
+| `visible` | no | CEL expression; when false, the host should not render this action — see Section 15 |
 
 ### 9.2 ARG Fields
 
@@ -568,6 +574,7 @@ type:<mime_type>
 label:<text>
 [description:<text>]
 [enabled:<cel_expression>]
+[visible:<cel_expression>]
 STREAM END
 ```
 
@@ -577,6 +584,7 @@ STREAM END
 | `label` | yes | Short human-readable display name |
 | `description` | no | Longer text for tooltip, hint, or footnote |
 | `enabled` | no | CEL expression; when false, the host should not display or interact with this stream — see Section 14 |
+| `visible` | no | CEL expression; when false, the host should not render this stream — see Section 15 |
 
 Any MIME type may be used, including `image/*` and `application/octet-stream`.
 
@@ -754,6 +762,42 @@ The optional `enabled:` field applies to `GROUP`, `PARAM`, `ACTION`, and `STREAM
 
 **Python host implementation:** The `cel-python` package (`pip install cel-python`) provides a pure Python CEL evaluator suitable for the host application.
 
+---
+
+## 15. Visibility (`visible:`)
+
+The optional `visible:` field applies to `GROUP`, `PARAM`, `ACTION`, and `STREAM` blocks:
+
+```
+[visible:<cel_expression>]
+```
+
+| Key | Mandatory | Description |
+|---|---|---|
+| `visible` | no | A CEL expression evaluated against current parameter values. When false, the host should not render this item in the UI. Omitting `visible` is equivalent to `visible:true`. |
+
+**Semantics:**
+
+- `visible:` controls rendering. `enabled:` controls interactivity. They are independent: an item can be visible but disabled (greyed out), or invisible but still callable by the host programmatically.
+- When a `GROUP` `visible:` evaluates to false, all items within the group are considered invisible regardless of their own `visible:` expressions.
+- A non-visible item may still be targeted by `GET`, `SET`, `DO`, or `STREAM` commands — the host is responsible for deciding when programmatic access to a non-visible item is appropriate.
+- The host is responsible for re-evaluating `visible:` expressions after the initial `GET` sweep and after each `CHANGED` notification.
+
+**Common use case — host-invoked actions:** An ACTION declared `visible:false` with a static literal is never rendered as a button but remains callable by the host in response to UI events such as SVG element clicks (see Appendix D).
+
+```
+ACTION BEGIN diagram_click
+label:Diagram Click
+visible:false
+
+ARG BEGIN element_id
+type:seam/string
+label:Element ID
+ARG END
+
+ACTION END
+```
+
 **Example:**
 
 ```
@@ -785,7 +829,7 @@ GROUP END
 
 ---
 
-## 15. Error Codes
+## 16. Error Codes
 
 | Code | Meaning |
 |---|---|
@@ -805,7 +849,7 @@ GROUP END
 
 ---
 
-## 16. USB CDC-ACM Identification Convention
+## 17. USB CDC-ACM Identification Convention
 
 When a SEAM device uses USB CDC-ACM as its transport, it should set the USB manufacturer
 string to `"SEAM"`. This allows host applications and watcher scripts to identify SEAM
@@ -827,7 +871,7 @@ The `USB_PRODUCT` string should match the `name` field in CAPS exactly.
 
 ---
 
-## 17. Device Implementation Requirements
+## 18. Device Implementation Requirements
 
 A conforming SEAM device must:
 
@@ -846,7 +890,7 @@ A conforming SEAM device should:
 
 ---
 
-## 18. Host Implementation Requirements
+## 19. Host Implementation Requirements
 
 A conforming SEAM host must:
 
@@ -863,7 +907,7 @@ A conforming SEAM host must:
 
 ---
 
-## 19. Versioning
+## 20. Versioning
 
 This specification follows [Semantic Versioning](https://semver.org/).
 
@@ -875,6 +919,12 @@ The `version` field in a CAPS response reflects the **device firmware version**,
 the SEAM protocol version. Protocol version is tracked in this document.
 
 ### Changelog
+
+**4.1.0**
+- `visible:<cel_expression>` optional field added to `GROUP`, `PARAM`, `ACTION`, and `STREAM` blocks
+- When `visible:` evaluates to false, the host should not render the item in the UI; the item remains accessible programmatically via `GET`, `SET`, and `DO`
+- When a `GROUP` `visible:` is false, all items within the group are considered invisible regardless of their own `visible:` expressions
+- Primary use case: `ACTION` blocks declared `visible:false` act as host-invoked event handlers (e.g. SVG click handlers) without appearing as buttons — see Appendix D
 
 **4.0.0**
 - `STREAM <id> START` and `STREAM <id> STOP` commands removed — stream lifecycle is now entirely the device's responsibility
@@ -1190,6 +1240,7 @@ PARAM END
 ACTION BEGIN on_svg_click
 label:SVG Click
 description:Called by the host when the user clicks a named SVG element
+visible:false
 
 ARG BEGIN element_id
 type:seam/string
@@ -1284,6 +1335,7 @@ declare additional `x` and `y` arguments in SVG user-unit coordinates:
 ```
 ACTION BEGIN on_svg_click
 label:SVG Click
+visible:false
 
 ARG BEGIN element_id
 type:seam/string
