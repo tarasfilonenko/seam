@@ -393,7 +393,7 @@ label:<text>
 [min:<value>]
 [max:<value>]
 [options:<value> ...]
-[bits:<count>]
+[bits:<name> ...]
 [watchable:true]
 [enabled:<cel_expression>]
 PARAM END
@@ -411,7 +411,7 @@ PARAM END
 | `min` | no | Minimum value — `seam/int` and `seam/float` only |
 | `max` | no | Maximum value — `seam/int` and `seam/float` only |
 | `options` | no | Space-separated option list — `seam/enum` only |
-| `bits` | no | Bit field width as a positive integer — `seam/bits` only; valid range is 0 to 2^N − 1; host renders N individually togglable bits numbered 0 (LSB) to N−1 (MSB) |
+| `bits` | no | Space-separated list of bit names — `seam/bits` only; bit 0 (LSB) = first name; valid range is 0 to 2^N − 1 where N is the number of declared names; host renders one labeled toggle per name |
 | `watchable` | no | `true` — host may subscribe via `WATCH` |
 | `enabled` | no | CEL expression; when false, the host should disable interaction with this parameter — see Section 14 |
 
@@ -471,13 +471,13 @@ label:Display
 description:Display framebuffer
 PARAM END
 
-PARAM BEGIN config
+PARAM BEGIN enabled_channels
 type:seam/bits
 access:rw
-label:Config
-bits:16
+label:Enabled Channels
+bits:ch1 ch2 ch3 ch4 ch5 ch6 ch7 ch8 ch9 ch10 ch11 ch12 ch13 ch14 ch15 ch16
 default:0
-description:16-bit configuration register
+description:Enable mask for 16 servo channels; bit 0 = ch1
 PARAM END
 ```
 
@@ -627,7 +627,7 @@ registered MIME types — they are SEAM-internal.
 | `seam/bool` | Boolean — ASCII `true` or `false` |
 | `seam/string` | UTF-8 string |
 | `seam/enum` | One of a declared set of string options |
-| `seam/bits` | Bit field — decimal ASCII integer; bit width declared via `bits:` — see Section 8.1 |
+| `seam/bits` | Bit field — decimal ASCII integer; named bits declared via `bits:` — see Section 8.1 |
 
 ### 11.2 Standard MIME Types
 
