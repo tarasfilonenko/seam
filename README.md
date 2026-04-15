@@ -1173,14 +1173,32 @@ through a paired ACTION. This section describes the full pattern.
 
 The device exposes a readable SVG parameter. The SVG markup must include `id` attributes
 on all interactive elements — the host uses these IDs as stable identifiers for user
-interactions. When the user clicks an element in the rendered SVG, the host sends a `DO`
-command with the clicked element's ID. The device maps IDs to internal logic and responds.
+interactions. When the user clicks an element in the rendered SVG, the host invokes the
+linked action with data from the click event.
 
 ```
-device exposes SVG → host renders it → user clicks element → host calls DO with element id → device acts
+device exposes SVG → host renders it → user clicks element → host calls DO with event data → device acts
 ```
 
-### D.2 CAPS Declaration
+### D.2 Event Schema for `image/svg+xml`
+
+A click on an `image/svg+xml` param produces the following event data:
+
+| Arg name | Type | Description |
+|---|---|---|
+| `element_id` | `seam/string` | `id` attribute of the clicked SVG element; empty string if the element has no `id` |
+| `x` | `seam/float` | Click X coordinate in SVG user units |
+| `y` | `seam/float` | Click Y coordinate in SVG user units |
+
+The ACTION declares whichever args it needs, using these exact names. The host sends
+only the args that are declared — acting as a subset selector over the schema. If the
+ACTION declares an arg name not in this table, the host will not send it; the device
+will receive `ERR BAD_ARGS` on the `DO` call.
+
+### D.3 CAPS Declaration
+
+The ACTION links to its trigger param via `trigger:` and declares whichever schema args
+the device needs:
 
 ```
 GROUP BEGIN ui
@@ -1194,15 +1212,14 @@ watchable:true
 description:Interactive module diagram; element ids map to controls
 PARAM END
 
+# device only needs to know which element was clicked
 ACTION BEGIN on_svg_click
 label:SVG Click
-description:Called by the host when the user clicks a named SVG element
 trigger:diagram
 
 ARG BEGIN element_id
 type:seam/string
 label:Element ID
-description:The id attribute of the clicked SVG element
 ARG END
 
 ACTION END
@@ -1210,11 +1227,35 @@ ACTION END
 GROUP END
 ```
 
-### D.3 SVG Structure Requirements
+To also receive click coordinates, add the remaining schema args:
+
+```
+ACTION BEGIN on_svg_click
+label:SVG Click
+trigger:diagram
+
+ARG BEGIN element_id
+type:seam/string
+label:Element ID
+ARG END
+
+ARG BEGIN x
+type:seam/float
+label:X
+ARG END
+
+ARG BEGIN y
+type:seam/float
+label:Y
+ARG END
+
+ACTION END
+```
+
+### D.4 SVG Structure Requirements
 
 The SVG content returned by `GET diagram` must include `id` attributes on every element
-the host should treat as interactive. Non-interactive elements should have no `id`, or
-the host should be configured to ignore them.
+the host should treat as interactive. Non-interactive elements should have no `id`.
 
 ```xml
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">
@@ -1231,15 +1272,16 @@ the host should be configured to ignore them.
 The host should add pointer-cursor styling and click handlers only to elements that carry
 an `id`. All other elements should remain inert.
 
-### D.4 Host Responsibilities
+### D.5 Host Responsibilities
 
 1. Issue `GET diagram` after `CAPS` and render the SVG.
-2. Attach click handlers to all SVG elements that have an `id` attribute.
-3. On click, send `DO BEGIN on_svg_click` with `element_id` set to the element's `id` value.
-4. If `diagram` is `watchable:true`, subscribe via `WATCH` and re-fetch on `CHANGED` to
+2. Scan all ACTIONs for `trigger:diagram`; build a list of linked actions.
+3. Attach click handlers to all SVG elements that have an `id` attribute.
+4. On click, invoke each linked action via `DO`, sending only the args declared by that action.
+5. If `diagram` is `watchable:true`, subscribe via `WATCH` and re-fetch on `CHANGED` to
    keep the rendered SVG in sync (the device may update element styles to reflect state).
 
-### D.5 Wire Protocol Example
+### D.6 Wire Protocol Example
 
 ```
 >> GET diagram
@@ -1253,17 +1295,23 @@ an `id`. All other elements should remain inert.
 >> relay_k1
 >> DO END
 << OK
+```
 
-# user clicks the element with id="led_power"
+With coordinates declared:
 
+```
 >> DO BEGIN on_svg_click
->> IN element_id 9
->> led_power
+>> IN element_id 8
+>> relay_k1
+>> IN x 4
+>> 34.5
+>> IN y 4
+>> 22.0
 >> DO END
 << OK
 ```
 
-### D.6 Returning Updated State
+### D.7 Returning Updated State
 
 If the device changes the SVG after a click (e.g. toggling a relay changes element fill
 colour), it emits `CHANGED diagram`. The host re-fetches and re-renders:
@@ -1282,49 +1330,4 @@ colour), it emits `CHANGED diagram`. The host re-fetches and re-renders:
 >> GET diagram
 << VALUE diagram 374
 << <374 bytes of updated SVG markup>
-```
-
-### D.7 Optional: Passing Click Coordinates
-
-If the device needs sub-element precision (e.g. a canvas-style SVG), the ACTION may
-declare additional `x` and `y` arguments in SVG user-unit coordinates:
-
-```
-ACTION BEGIN on_svg_click
-label:SVG Click
-trigger:diagram
-
-ARG BEGIN element_id
-type:seam/string
-label:Element ID
-description:The id attribute of the clicked SVG element; empty string if none
-ARG END
-
-ARG BEGIN x
-type:seam/float
-label:X
-description:Click X in SVG user units
-ARG END
-
-ARG BEGIN y
-type:seam/float
-label:Y
-description:Click Y in SVG user units
-ARG END
-
-ACTION END
-```
-
-Wire protocol with coordinates:
-
-```
->> DO BEGIN on_svg_click
->> IN element_id 8
->> relay_k1
->> IN x 4
->> 34.5
->> IN y 4
->> 22.0
->> DO END
-<< OK
 ```
