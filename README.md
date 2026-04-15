@@ -1186,6 +1186,7 @@ A click on an `image/svg+xml` param produces the following event data:
 
 | Arg name | Type | Description |
 |---|---|---|
+| `source` | `seam/string` | ID of the param that triggered the event (e.g. `diagram`) |
 | `element_id` | `seam/string` | `id` attribute of the clicked SVG element; empty string if the element has no `id` |
 | `x` | `seam/float` | Click X coordinate in SVG user units |
 | `y` | `seam/float` | Click Y coordinate in SVG user units |
@@ -1217,6 +1218,11 @@ ACTION BEGIN on_svg_click
 label:SVG Click
 trigger:diagram
 
+ARG BEGIN source
+type:seam/string
+label:Source
+ARG END
+
 ARG BEGIN element_id
 type:seam/string
 label:Element ID
@@ -1233,6 +1239,11 @@ To also receive click coordinates, add the remaining schema args:
 ACTION BEGIN on_svg_click
 label:SVG Click
 trigger:diagram
+
+ARG BEGIN source
+type:seam/string
+label:Source
+ARG END
 
 ARG BEGIN element_id
 type:seam/string
@@ -1291,6 +1302,8 @@ an `id`. All other elements should remain inert.
 # user clicks the element with id="relay_k1"
 
 >> DO BEGIN on_svg_click
+>> IN source 7
+>> diagram
 >> IN element_id 8
 >> relay_k1
 >> DO END
@@ -1301,6 +1314,8 @@ With coordinates declared:
 
 ```
 >> DO BEGIN on_svg_click
+>> IN source 7
+>> diagram
 >> IN element_id 8
 >> relay_k1
 >> IN x 4
