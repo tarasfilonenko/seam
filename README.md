@@ -4,7 +4,7 @@
   <img src="assets/logo/seam-logo.svg" alt="SEAM logo" width="520" />
 </p>
 
-**Version**: 4.4.0  
+**Version**: 4.5.0  
 **Encoding**: ASCII / UTF-8  
 **Status**: Draft  
 
@@ -503,6 +503,7 @@ PARAM END
 ACTION BEGIN <id>
 label:<text>
 [description:<text>]
+[visible:<cel_expression>]
 [enabled:<cel_expression>]
 [trigger:<param_id>]
 
@@ -524,6 +525,7 @@ ACTION END
 |---|---|---|
 | `label` | yes | Short human-readable display name |
 | `description` | no | Longer text for tooltip, hint, or footnote |
+| `visible` | no | CEL expression; when false, the host should hide this action from normal UI while keeping it in the capability model — see Section 14 |
 | `enabled` | no | CEL expression; when false, the host should disable interaction with this action — see Section 14 |
 | `trigger` | no | ID of the param that drives this action. The host does not render a button; instead it invokes this action programmatically in response to interaction events on the referenced param (e.g. element clicks on an `image/svg+xml` param — see Appendix D) |
 
@@ -548,6 +550,7 @@ or a `STREAM`. See Section 5.4 for the `DO` wire protocol.
 ACTION BEGIN center
 label:Center
 description:Move to center position
+visible:mode == "manual"
 ACTION END
 
 ACTION BEGIN sweep
@@ -793,7 +796,7 @@ The optional `enabled:` field applies to `GROUP`, `PARAM`, `ACTION`, and `STREAM
 
 **Python host implementation:** The `cel-python` package (`pip install cel-python`) provides a pure Python CEL evaluator suitable for the host application.
 
-The optional `visible:` field applies to `GROUP` and `PARAM` blocks:
+The optional `visible:` field applies to `GROUP`, `PARAM`, and `ACTION` blocks:
 
 ```
 [visible:<cel_expression>]
@@ -808,8 +811,9 @@ The optional `visible:` field applies to `GROUP` and `PARAM` blocks:
 - `visible:` uses the same CEL evaluation context and SEAM-to-CEL type mapping as `enabled:`.
 - When a `GROUP` `visible:` evaluates to false, the host should omit that group and all items within it from its normal operator-facing UI regardless of the contained items' own `visible:` expressions.
 - When a `PARAM` `visible:` evaluates to false, the host should omit that parameter from its normal operator-facing UI.
-- `visible:` does not change wire-level accessibility. Hidden groups and parameters remain part of the declared model, and hosts may still `GET`, `SET`, `WATCH`, persist, or reference hidden parameters from other CEL expressions as appropriate.
-- Hosts may optionally surface hidden groups and parameters in advanced, diagnostic, or developer-oriented views.
+- When an `ACTION` `visible:` evaluates to false, the host should omit its explicit control from its normal operator-facing UI.
+- `visible:` does not change wire-level accessibility. Hidden groups, parameters, and actions remain part of the declared model, and hosts may still `GET`, `SET`, `WATCH`, persist, reference hidden parameters from other CEL expressions, or `DO` hidden actions as appropriate.
+- Hosts may optionally surface hidden groups, parameters, and actions in advanced, diagnostic, or developer-oriented views.
 - `visible:` is a presentation hint, not a security boundary or capability gate. Use `enabled:` when interaction must be suppressed.
 
 > **Recommendation:** Parameters referenced in `visible:` expressions should be declared `watchable:true` when practical, for the same reason as `enabled:`.
@@ -961,9 +965,9 @@ A conforming SEAM host must:
 - Evaluate all `enabled:` CEL expressions after the initial `GET` sweep and after each
   `CHANGED` notification, and suppress interaction with any item whose expression
   evaluates to false
-- Evaluate all `visible:` CEL expressions for groups and params after the initial `GET`
-  sweep and after each `CHANGED` notification, and hide items whose expressions evaluate
-  to false from normal UI
+- Evaluate all `visible:` CEL expressions for groups, params, and actions after the
+  initial `GET` sweep and after each `CHANGED` notification, and hide items whose
+  expressions evaluate to false from normal UI
 - For each param declared `persist:true`, save its value whenever it is read (via `GET`
   or `CHANGED`) and restore it via `SET` after the initial `GET` sweep on reconnection
 
@@ -981,6 +985,11 @@ The `version` field in a CAPS response reflects the **device firmware version**,
 the SEAM protocol version. Protocol version is tracked in this document.
 
 ### Changelog
+
+**4.5.0**
+- `visible:<cel_expression>` optional field added to `ACTION` blocks
+- When an `ACTION` `visible:` evaluates to false, the host hides its explicit control from normal UI
+- `visible:` remains presentation-only and does not change wire-level accessibility
 
 **4.4.0**
 - `visible:<cel_expression>` optional field added to `GROUP` blocks
