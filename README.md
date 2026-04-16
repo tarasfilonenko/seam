@@ -4,7 +4,7 @@
   <img src="assets/logo/seam-logo.svg" alt="SEAM logo" width="520" />
 </p>
 
-**Version**: 4.3.0  
+**Version**: 4.4.0  
 **Encoding**: ASCII / UTF-8  
 **Status**: Draft  
 
@@ -363,6 +363,7 @@ All three are mandatory and must appear before any `GROUP BEGIN`.
 ```
 GROUP BEGIN <id>
 label:<display_label>
+[visible:<cel_expression>]
 [enabled:<cel_expression>]
 
 PARAM BEGIN ...
@@ -375,6 +376,7 @@ GROUP END
 | Key | Mandatory | Description |
 |---|---|---|
 | `label` | yes | Human-readable group label |
+| `visible` | no | CEL expression; when false, the host should hide this group from normal UI while keeping it in the capability model — see Section 14 |
 | `enabled` | no | CEL expression; when false, all items in the group are disabled — see Section 14 |
 
 Groups organise parameters, actions, and streams into logical sections. All `PARAM`,
@@ -791,7 +793,7 @@ The optional `enabled:` field applies to `GROUP`, `PARAM`, `ACTION`, and `STREAM
 
 **Python host implementation:** The `cel-python` package (`pip install cel-python`) provides a pure Python CEL evaluator suitable for the host application.
 
-The optional `visible:` field applies to `PARAM` blocks:
+The optional `visible:` field applies to `GROUP` and `PARAM` blocks:
 
 ```
 [visible:<cel_expression>]
@@ -799,14 +801,15 @@ The optional `visible:` field applies to `PARAM` blocks:
 
 | Key | Mandatory | Description |
 |---|---|---|
-| `visible` | no | A CEL expression evaluated against current parameter values. When false, the host should hide this parameter from normal UI. Omitting `visible` is equivalent to `visible:true`. |
+| `visible` | no | A CEL expression evaluated against current parameter values. When false, the host should hide this item from normal UI. Omitting `visible` is equivalent to `visible:true`. |
 
 **Semantics:**
 
 - `visible:` uses the same CEL evaluation context and SEAM-to-CEL type mapping as `enabled:`.
-- When `visible:` is false, the host should omit the parameter from its normal operator-facing UI.
-- `visible:` does not change wire-level accessibility. Hidden parameters remain part of the declared model, and hosts may still `GET`, `SET`, `WATCH`, persist, or reference them from other CEL expressions as appropriate.
-- Hosts may optionally surface hidden parameters in advanced, diagnostic, or developer-oriented views.
+- When a `GROUP` `visible:` evaluates to false, the host should omit that group and all items within it from its normal operator-facing UI regardless of the contained items' own `visible:` expressions.
+- When a `PARAM` `visible:` evaluates to false, the host should omit that parameter from its normal operator-facing UI.
+- `visible:` does not change wire-level accessibility. Hidden groups and parameters remain part of the declared model, and hosts may still `GET`, `SET`, `WATCH`, persist, or reference hidden parameters from other CEL expressions as appropriate.
+- Hosts may optionally surface hidden groups and parameters in advanced, diagnostic, or developer-oriented views.
 - `visible:` is a presentation hint, not a security boundary or capability gate. Use `enabled:` when interaction must be suppressed.
 
 > **Recommendation:** Parameters referenced in `visible:` expressions should be declared `watchable:true` when practical, for the same reason as `enabled:`.
@@ -859,6 +862,7 @@ GROUP END
 ```
 GROUP BEGIN tuning
 label:Tuning
+visible:show_advanced
 
 PARAM BEGIN show_advanced
 type:seam/bool
@@ -874,7 +878,6 @@ type:seam/float
 access:rw
 label:D Gain
 default:0.0
-visible:show_advanced
 description:Derivative gain for advanced tuning
 PARAM END
 
@@ -958,8 +961,9 @@ A conforming SEAM host must:
 - Evaluate all `enabled:` CEL expressions after the initial `GET` sweep and after each
   `CHANGED` notification, and suppress interaction with any item whose expression
   evaluates to false
-- Evaluate all `visible:` CEL expressions for params after the initial `GET` sweep and
-  after each `CHANGED` notification, and hide params whose expressions evaluate to false
+- Evaluate all `visible:` CEL expressions for groups and params after the initial `GET`
+  sweep and after each `CHANGED` notification, and hide items whose expressions evaluate
+  to false from normal UI
 - For each param declared `persist:true`, save its value whenever it is read (via `GET`
   or `CHANGED`) and restore it via `SET` after the initial `GET` sweep on reconnection
 
@@ -977,6 +981,11 @@ The `version` field in a CAPS response reflects the **device firmware version**,
 the SEAM protocol version. Protocol version is tracked in this document.
 
 ### Changelog
+
+**4.4.0**
+- `visible:<cel_expression>` optional field added to `GROUP` blocks
+- When a `GROUP` `visible:` evaluates to false, the host hides the group and all contained items from normal UI regardless of the contained items' own `visible:` expressions
+- `visible:` remains presentation-only and does not change wire-level accessibility
 
 **4.3.0**
 - `visible:<cel_expression>` optional field added to `PARAM` blocks
