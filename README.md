@@ -635,6 +635,16 @@ registered MIME types — they are SEAM-internal.
 | `seam/enum` | One of a declared set of string options |
 | `seam/flags` | Named flag set — space-separated active flag names; all declared names via `flags:` — see Section 8.1 |
 
+For CEL evaluation of `enabled:` expressions, hosts should expose standard SEAM scalar types as follows:
+- `seam/int` as a CEL integer
+- `seam/float` as a CEL double
+- `seam/bool` as a CEL boolean
+- `seam/string` as a CEL string
+- `seam/enum` as a CEL string
+- `seam/flags` as a CEL list of strings containing the active flag names, in wire order
+
+This CEL mapping is host-side only. The wire representation remains unchanged.
+
 ### 11.2 Standard MIME Types
 
 Any valid MIME type may be used. Common examples:
@@ -765,6 +775,7 @@ The optional `enabled:` field applies to `GROUP`, `PARAM`, `ACTION`, and `STREAM
 **Semantics:**
 
 - The expression is a [CEL (Common Expression Language)](https://cel.dev) string evaluated by the host, with current parameter values as context, keyed by param id. See the [CEL language definition](https://github.com/google/cel-spec/blob/master/doc/langdef.md) for supported operators and syntax.
+- Hosts should convert current parameter values to CEL values by SEAM type before evaluation. Standard SEAM types map as follows: `seam/int` -> CEL integer, `seam/float` -> CEL double, `seam/bool` -> CEL boolean, `seam/string` -> CEL string, `seam/enum` -> CEL string, and `seam/flags` -> CEL list of strings containing the active flag names in wire order. This mapping is host-side only and does not change the wire format.
 - When a `GROUP` `enabled:` evaluates to false, all items within the group are considered disabled regardless of their own `enabled:` expressions.
 - When `enabled:` is false, the host should not send `GET`, `SET`, or `DO` commands targeting the item.
 - The device may return `ERR BUSY` or `ERR FAILED` if a command is received for a disabled item, but correct host behaviour makes this unnecessary.
@@ -775,6 +786,22 @@ The optional `enabled:` field applies to `GROUP`, `PARAM`, `ACTION`, and `STREAM
 **Python host implementation:** The `cel-python` package (`pip install cel-python`) provides a pure Python CEL evaluator suitable for the host application.
 
 **Example:**
+
+```
+GROUP BEGIN channels
+label:Channels
+enabled:"ch1" in enabled_channels
+
+PARAM BEGIN enabled_channels
+type:seam/flags
+access:rw
+label:Enabled Channels
+flags:ch1 ch2 ch3 ch4
+description:Visible channels
+PARAM END
+
+GROUP END
+```
 
 ```
 GROUP BEGIN sweep
