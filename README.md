@@ -1,6 +1,6 @@
 # SEAM — Serial Enumeration and Action Model
 
-**Version**: 4.1.0  
+**Version**: 4.3.0  
 **Encoding**: ASCII / UTF-8  
 **Status**: Draft  
 
@@ -396,6 +396,7 @@ label:<text>
 [flags:<name> ...]
 [watchable:true]
 [persist:true]
+[visible:<cel_expression>]
 [enabled:<cel_expression>]
 PARAM END
 ```
@@ -415,6 +416,7 @@ PARAM END
 | `flags` | no | Space-separated list of flag names — `seam/flags` only; host renders one labeled toggle per name; wire value is space-separated names of the active (true) flags; absent name means false; empty value means no flags set |
 | `watchable` | no | `true` — host may subscribe via `WATCH` |
 | `persist` | no | `true` — host should save this parameter's value and restore it via `SET` on reconnection; only meaningful on params with `access:rw` or `access:w` |
+| `visible` | no | CEL expression; when false, the host should hide this parameter from normal UI while keeping it in the capability model — see Section 14 |
 | `enabled` | no | CEL expression; when false, the host should disable interaction with this parameter — see Section 14 |
 
 **Note on defaults:** The `default` field is informational. Hosts should always `GET`
@@ -760,7 +762,7 @@ CHANGED pulse_width_us
 
 ---
 
-## 14. Conditional Enabling (`enabled:`)
+## 14. Conditional Expressions (`enabled:` and `visible:`)
 
 The optional `enabled:` field applies to `GROUP`, `PARAM`, `ACTION`, and `STREAM` blocks:
 
@@ -785,7 +787,27 @@ The optional `enabled:` field applies to `GROUP`, `PARAM`, `ACTION`, and `STREAM
 
 **Python host implementation:** The `cel-python` package (`pip install cel-python`) provides a pure Python CEL evaluator suitable for the host application.
 
-**Example:**
+The optional `visible:` field applies to `PARAM` blocks:
+
+```
+[visible:<cel_expression>]
+```
+
+| Key | Mandatory | Description |
+|---|---|---|
+| `visible` | no | A CEL expression evaluated against current parameter values. When false, the host should hide this parameter from normal UI. Omitting `visible` is equivalent to `visible:true`. |
+
+**Semantics:**
+
+- `visible:` uses the same CEL evaluation context and SEAM-to-CEL type mapping as `enabled:`.
+- When `visible:` is false, the host should omit the parameter from its normal operator-facing UI.
+- `visible:` does not change wire-level accessibility. Hidden parameters remain part of the declared model, and hosts may still `GET`, `SET`, `WATCH`, persist, or reference them from other CEL expressions as appropriate.
+- Hosts may optionally surface hidden parameters in advanced, diagnostic, or developer-oriented views.
+- `visible:` is a presentation hint, not a security boundary or capability gate. Use `enabled:` when interaction must be suppressed.
+
+> **Recommendation:** Parameters referenced in `visible:` expressions should be declared `watchable:true` when practical, for the same reason as `enabled:`.
+
+**Examples:**
 
 ```
 GROUP BEGIN channels
@@ -825,6 +847,31 @@ min:500
 max:2500
 enabled:start_us < end_us
 description:Sweep end in microseconds
+PARAM END
+
+GROUP END
+```
+
+```
+GROUP BEGIN tuning
+label:Tuning
+
+PARAM BEGIN show_advanced
+type:seam/bool
+access:rw
+label:Show Advanced
+default:false
+watchable:true
+description:Reveal advanced tuning controls
+PARAM END
+
+PARAM BEGIN pid_derivative
+type:seam/float
+access:rw
+label:D Gain
+default:0.0
+visible:show_advanced
+description:Derivative gain for advanced tuning
 PARAM END
 
 GROUP END
@@ -907,6 +954,8 @@ A conforming SEAM host must:
 - Evaluate all `enabled:` CEL expressions after the initial `GET` sweep and after each
   `CHANGED` notification, and suppress interaction with any item whose expression
   evaluates to false
+- Evaluate all `visible:` CEL expressions for params after the initial `GET` sweep and
+  after each `CHANGED` notification, and hide params whose expressions evaluate to false
 - For each param declared `persist:true`, save its value whenever it is read (via `GET`
   or `CHANGED`) and restore it via `SET` after the initial `GET` sweep on reconnection
 
@@ -924,6 +973,11 @@ The `version` field in a CAPS response reflects the **device firmware version**,
 the SEAM protocol version. Protocol version is tracked in this document.
 
 ### Changelog
+
+**4.3.0**
+- `visible:<cel_expression>` optional field added to `PARAM` blocks
+- `visible:` is a host-side presentation hint only: when false, the parameter is hidden from normal UI but remains part of the capability model and wire protocol
+- Host must re-evaluate `visible:` expressions after the initial `GET` sweep and after each `CHANGED` notification
 
 **4.2.0**
 - `persist:true` optional field added to `PARAM` blocks
