@@ -1,5 +1,9 @@
 # SEAM — Serial Enumeration and Action Model
 
+<p align="center">
+  <img src="assets/logo/seam-logo.svg" alt="SEAM logo" width="520" />
+</p>
+
 **Version**: 4.3.0  
 **Encoding**: ASCII / UTF-8  
 **Status**: Draft  

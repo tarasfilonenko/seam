@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 96" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">SEAM logo</title>
+  <desc id="desc">SEAM wordmark with a stitched serial connection logo mark.</desc>
+  <path d="M18 24H48V48H78V72H48V48H18" stroke="#0E1B1F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="18" cy="24" r="5.5" fill="#00B89C"/>
+  <circle cx="48" cy="24" r="5.5" fill="#00B89C"/>
+  <circle cx="18" cy="48" r="5.5" fill="#00B89C"/>
+  <circle cx="48" cy="48" r="5.5" fill="#F4A11A"/>
+  <circle cx="78" cy="48" r="5.5" fill="#00B89C"/>
+  <circle cx="48" cy="72" r="5.5" fill="#00B89C"/>
+  <circle cx="78" cy="72" r="5.5" fill="#00B89C"/>
+  <path d="M182 26H146V44H170V62H134" stroke="#0E1B1F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M208 26V62H246M208 44H238M208 26H246" stroke="#0E1B1F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M270 62L288 26L306 62M278 48H298" stroke="#0E1B1F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M330 62V26L348 46L366 26V62" stroke="#0E1B1F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

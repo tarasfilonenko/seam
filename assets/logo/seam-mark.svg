@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">SEAM logo mark</title>
+  <desc id="desc">An abstract stitched S-shape connecting serial data lines.</desc>
+  <path d="M18 24H48V48H78V72H48V48H18" stroke="#0E1B1F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="18" cy="24" r="5.5" fill="#00B89C"/>
+  <circle cx="48" cy="24" r="5.5" fill="#00B89C"/>
+  <circle cx="18" cy="48" r="5.5" fill="#00B89C"/>
+  <circle cx="48" cy="48" r="5.5" fill="#F4A11A"/>
+  <circle cx="78" cy="48" r="5.5" fill="#00B89C"/>
+  <circle cx="48" cy="72" r="5.5" fill="#00B89C"/>
+  <circle cx="78" cy="72" r="5.5" fill="#00B89C"/>
+</svg>
