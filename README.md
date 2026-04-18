@@ -4,7 +4,7 @@
   <img src="assets/logo/seam-logo.svg" alt="SEAM logo" width="520" />
 </p>
 
-**Version**: 4.5.0  
+**Version**: 5.0.0  
 **Encoding**: ASCII / UTF-8  
 **Status**: Draft  
 
@@ -30,8 +30,8 @@ A SEAM device exposes:
 - **Streams** — named data channels that emit values continuously
 
 The host queries capabilities once on connect, then uses a small set of commands
-(`GET`, `SET`, `DO`) to interact with the device. No host-side configuration
-or code generation is required to support a new device type.
+(`GET`, `SET`, `DO`, `STATUS`, `WATCH`, `UNWATCH`) to interact with the device. No
+host-side configuration or code generation is required to support a new device type.
 
 ### Design goals
 
@@ -39,7 +39,7 @@ or code generation is required to support a new device type.
 - **Self-describing** — the device tells the host everything; the host needs no prior knowledge
 - **Transport-agnostic** — designed for USB CDC-ACM but works over any byte stream
 - **MCU-friendly** — implementable on a microcontroller with minimal RAM and no dynamic allocation
-- **Minimal** — one handshake command (`CAPS`), five interaction commands
+- **Minimal** — one handshake command (`CAPS`), six interaction commands
 
 ### Relationship to existing protocols
 
@@ -91,8 +91,8 @@ Rules:
 - Lines beginning with `#` are **comments** and must be ignored by the receiver.
 - Data payloads are length-prefixed and not subject to line length constraints — see Section 12.
 
-> **Note:** Quoted strings appear only in `STATUS` responses (Section 5.5). All other
-> variable-length content uses the length-prefixed frame format (Section 12).
+> **Note:** Variable-length content uses either the block format (Section 4), the
+> length-prefixed frame format (Section 12), or optional trailing text on `OK` lines.
 
 ---
 
@@ -115,12 +115,28 @@ Rules:
 - Blocks may be nested.
 - Unknown `key:value` lines must be silently ignored — forward compatibility.
 
-This pattern is used by `CAPS`, `GROUP`, `PARAM`, `ACTION`, `ARG`, and `STREAM` blocks,
-and by the `DO` command block.
+This pattern is used by `CAPS`, `GROUP`, `PARAM`, `ACTION`, `ARG`, `STREAM`, and `ERR`
+blocks, and by the `DO` command block.
 
 ---
 
 ## 5. Commands (Host → Device)
+
+Each host-issued command must receive exactly one **terminal response** from the device.
+Terminal responses are:
+
+- `CAPS BEGIN ... CAPS END`
+- `VALUE <id> <length>\r\n<data>\r\n`
+- `OK[ <text>]\r\n`
+- `ERR BEGIN <code> ... ERR END`
+
+On `OK` responses, any trailing text after `OK ` is optional human-readable detail. Hosts
+must not use that text for control flow.
+
+`DATA` frames and `CHANGED` notifications are **asynchronous notifications**, not terminal
+responses. They may interleave with command processing and do not satisfy a pending
+command. A host must wait for the terminal response to the current command before issuing
+the next command.
 
 ### 5.1 `CAPS`
 
@@ -132,7 +148,7 @@ HELLO command.
 CAPS\r\n
 ```
 
-Response: a CAPS block (see Section 6).
+Terminal response: a CAPS block (see Section 6).
 
 The device must respond to `CAPS` at any time, including immediately after power-on or
 port open. Response must arrive within **500ms**.
@@ -147,16 +163,21 @@ Read a single parameter value.
 GET <id>\r\n
 ```
 
-Response:
+Success response:
 ```
 VALUE <id> <length>\r\n
 <data>\r\n
 ```
 
-Errors:
+Error response:
 ```
-ERR UNKNOWN_PARAM <id>\r\n
-ERR NOT_READABLE <id>\r\n
+ERR BEGIN UNKNOWN_PARAM
+id:<id>
+ERR END
+
+ERR BEGIN NOT_READABLE
+id:<id>
+ERR END
 ```
 
 Example:
@@ -187,17 +208,31 @@ SET <id> <length>\r\n
 <data>\r\n
 ```
 
-Response:
+Success response:
 ```
-OK\r\n
+OK[ <text>]\r\n
 ```
 
-Errors:
+Error response:
 ```
-ERR UNKNOWN_PARAM <id>\r\n
-ERR NOT_WRITABLE <id>\r\n
-ERR OUT_OF_RANGE <id> <min> <max>\r\n
-ERR INVALID_VALUE <id>\r\n
+ERR BEGIN UNKNOWN_PARAM
+id:<id>
+ERR END
+
+ERR BEGIN NOT_WRITABLE
+id:<id>
+ERR END
+
+ERR BEGIN OUT_OF_RANGE
+id:<id>
+min:<value>
+max:<value>
+ERR END
+
+ERR BEGIN INVALID_VALUE
+id:<id>
+[message:<text>]
+ERR END
 ```
 
 Example:
@@ -212,7 +247,7 @@ Example:
 ```
 
 The device validates incoming data against the declared MIME type. On type mismatch or
-parse failure it responds with `ERR INVALID_VALUE <id>`.
+parse failure it responds with an `INVALID_VALUE` error block.
 
 > **Note:** Multi-parameter SET is not supported. Issue one `SET` per parameter.
 
@@ -230,17 +265,32 @@ DO BEGIN <id>\r\n
 DO END\r\n
 ```
 
-Response:
+Success response:
 ```
-OK\r\n
+OK[ <text>]\r\n
 ```
 
-Errors:
+Error response:
 ```
-ERR UNKNOWN_ACTION <id>\r\n
-ERR BAD_ARGS <id>\r\n
-ERR BUSY\r\n
-ERR FAILED "<message>"\r\n
+ERR BEGIN UNKNOWN_ACTION
+id:<id>
+ERR END
+
+ERR BEGIN BAD_ARGS
+id:<id>
+[missing:<arg_id>]
+[message:<text>]
+ERR END
+
+ERR BEGIN BUSY
+[id:<id>]
+[message:<text>]
+ERR END
+
+ERR BEGIN FAILED
+[id:<id>]
+[message:<text>]
+ERR END
 ```
 
 Example:
@@ -267,7 +317,7 @@ Example:
 Argument data uses the same encoding as `SET` for the declared MIME type. `seam/` scalar
 values are represented as ASCII text (e.g. `1000` for a `seam/int`). Arguments may be
 sent in any order — the device matches them by name against the ACTION declaration.
-All declared arguments are required; omitting any results in `ERR BAD_ARGS`.
+All declared arguments are required; omitting any results in a `BAD_ARGS` error block.
 
 ---
 
@@ -280,15 +330,18 @@ is free-form and device-defined.
 STATUS\r\n
 ```
 
-Response:
+Success response:
 ```
-OK "<status_string>"\r\n
+OK[ <text>]\r\n
 ```
+
+For `STATUS`, the optional trailing text is the human-readable status string. Any text
+after `OK ` occupies the remainder of the line.
 
 Example:
 ```
 >> STATUS
-<< OK "Idle. PWM enabled at 1500us, 50Hz."
+<< OK Idle. PWM enabled at 1500us, 50Hz.
 ```
 
 ---
@@ -303,17 +356,28 @@ WATCH <id>\r\n
 UNWATCH <id>\r\n
 ```
 
-Response:
+Success response:
 ```
-OK\r\n
+OK[ <text>]\r\n
 ```
 
-Errors:
+Error response:
 ```
-ERR UNKNOWN_PARAM <id>\r\n
-ERR NOT_WATCHABLE <id>\r\n
-ERR ALREADY_WATCHING <id>\r\n
-ERR NOT_WATCHING <id>\r\n
+ERR BEGIN UNKNOWN_PARAM
+id:<id>
+ERR END
+
+ERR BEGIN NOT_WATCHABLE
+id:<id>
+ERR END
+
+ERR BEGIN ALREADY_WATCHING
+id:<id>
+ERR END
+
+ERR BEGIN NOT_WATCHING
+id:<id>
+ERR END
 ```
 
 `CHANGED` notifications are only emitted when the value actually changes — not on every
@@ -789,7 +853,7 @@ The optional `enabled:` field applies to `GROUP`, `PARAM`, `ACTION`, and `STREAM
 - Hosts should convert current parameter values to CEL values by SEAM type before evaluation. Standard SEAM types map as follows: `seam/int` -> CEL integer, `seam/float` -> CEL double, `seam/bool` -> CEL boolean, `seam/string` -> CEL string, `seam/enum` -> CEL string, and `seam/flags` -> CEL list of strings containing the active flag names in wire order. This mapping is host-side only and does not change the wire format.
 - When a `GROUP` `enabled:` evaluates to false, all items within the group are considered disabled regardless of their own `enabled:` expressions.
 - When `enabled:` is false, the host should not send `GET`, `SET`, or `DO` commands targeting the item.
-- The device may return `ERR BUSY` or `ERR FAILED` if a command is received for a disabled item, but correct host behaviour makes this unnecessary.
+- The device may return a `BUSY` or `FAILED` error block if a command is received for a disabled item, but correct host behaviour makes this unnecessary.
 - The host is responsible for keeping `enabled:` expressions up to date. Strategies such as re-evaluating on `CHANGED` notifications, polling, or a combination of both are all valid — the protocol does not mandate a specific approach.
 
 > **Recommendation:** Parameters referenced in `enabled:` expressions should be declared `watchable:true` to allow the host to react promptly to value changes. This is not enforced by the protocol.
@@ -892,21 +956,64 @@ GROUP END
 
 ## 15. Error Codes
 
-| Code | Meaning |
-|---|---|
-| `UNKNOWN_CMD` | Unrecognized command keyword |
-| `UNKNOWN_PARAM` | No parameter with that ID |
-| `UNKNOWN_ACTION` | No action with that ID |
-| `NOT_READABLE` | Parameter is write-only |
-| `NOT_WRITABLE` | Parameter is read-only |
-| `OUT_OF_RANGE` | Numeric value outside declared min/max |
-| `INVALID_VALUE` | Value cannot be parsed for the declared type |
-| `BAD_ARGS` | Unknown argument name, missing required argument, or value invalid for declared type |
-| `BUSY` | Device cannot accept this command right now |
-| `FAILED` | Action attempted but failed (with optional message) |
-| `NOT_WATCHABLE` | `WATCH` issued for a param not declared `watchable:true` |
-| `ALREADY_WATCHING` | `WATCH` issued while already subscribed |
-| `NOT_WATCHING` | `UNWATCH` issued while not subscribed |
+All failed commands terminate with an `ERR` block:
+
+```text
+ERR BEGIN <code>
+[id:<target_id>]
+[message:<text>]
+... code-specific fields ...
+ERR END
+```
+
+The opening line carries the error code. The block body may contain:
+
+- `id:` — target parameter, action, or watch subscription when applicable
+- `message:` — optional human-readable detail for logs or UI
+- additional code-specific fields defined below
+
+Hosts must branch on the error code and any known fields defined for that code. Unknown
+fields must be ignored. `message:` is advisory only and must not be used for control flow.
+
+| Code | Fields | Meaning |
+|---|---|---|
+| `UNKNOWN_CMD` | `[message]` | Unrecognized command keyword |
+| `UNKNOWN_PARAM` | `id` | No parameter with that ID |
+| `UNKNOWN_ACTION` | `id` | No action with that ID |
+| `NOT_READABLE` | `id` | Parameter is write-only |
+| `NOT_WRITABLE` | `id` | Parameter is read-only |
+| `OUT_OF_RANGE` | `id`, `min`, `max` | Numeric value outside declared min/max |
+| `INVALID_VALUE` | `id`, `[message]` | Value cannot be parsed for the declared type |
+| `BAD_ARGS` | `id`, `[missing]`, `[message]` | Unknown argument name, missing required argument, or value invalid for declared type |
+| `BUSY` | `[id]`, `[message]` | Device cannot accept this command right now |
+| `FAILED` | `[id]`, `[message]` | Action attempted but failed |
+| `NOT_WATCHABLE` | `id` | `WATCH` issued for a param not declared `watchable:true` |
+| `ALREADY_WATCHING` | `id` | `WATCH` issued while already subscribed |
+| `NOT_WATCHING` | `id` | `UNWATCH` issued while not subscribed |
+
+Examples:
+
+```text
+ERR BEGIN UNKNOWN_PARAM
+id:pulse_width_us
+ERR END
+```
+
+```text
+ERR BEGIN OUT_OF_RANGE
+id:pulse_width_us
+min:500
+max:2500
+message:Value must be between 500 and 2500
+ERR END
+```
+
+```text
+ERR BEGIN BAD_ARGS
+id:sweep
+missing:end_us
+ERR END
+```
 
 ---
 
@@ -937,7 +1044,9 @@ The `USB_PRODUCT` string should match the `name` field in CAPS exactly.
 A conforming SEAM device must:
 
 - Respond to `CAPS\r\n` within **500ms**, at any time after the connection is opened
-- Return `ERR UNKNOWN_CMD\r\n` for any unrecognized command — never hang or ignore
+- Return exactly one terminal response for every command: a `CAPS` block, `VALUE`,
+  `OK[ <text>]`, or `ERR`
+- Return an `UNKNOWN_CMD` error block for any unrecognized command — never hang or ignore
 - Never send unsolicited output except `DATA` frames and `CHANGED` lines for active
   `WATCH` subscriptions
 - Reset internal streaming and watch state cleanly when the connection is closed and reopened
@@ -957,11 +1066,13 @@ A conforming SEAM host must:
 
 - Send `CAPS` immediately after opening a connection
 - Perform a `GET` sweep of all readable parameters after `CAPS` to obtain live values
+- Parse `OK` responses with or without optional trailing text
 - Parse the frame format: `KEYWORD <id> <length>\r\n<data>\r\n` for `VALUE` and `DATA`
-- Handle `ERR` responses gracefully without crashing
+- Handle `ERR` blocks gracefully without crashing
 - Issue `GET <id>` upon receiving a `CHANGED <id>` notification to retrieve the new value
-- Not send a new command until the previous command's response has been received,
-  except when active streams are running
+- Not send a new command until the previous command's terminal response has been received
+- Continue parsing asynchronous `DATA` frames and `CHANGED` notifications while waiting
+  for a terminal response; they do not satisfy the pending command
 - Evaluate all `enabled:` CEL expressions after the initial `GET` sweep and after each
   `CHANGED` notification, and suppress interaction with any item whose expression
   evaluates to false
@@ -985,6 +1096,23 @@ The `version` field in a CAPS response reflects the **device firmware version**,
 the SEAM protocol version. Protocol version is tracked in this document.
 
 ### Changelog
+
+**5.0.0**
+- Error wire format changed from single-line `ERR ...` responses to structured
+  `ERR BEGIN <code>` / `ERR END` blocks
+- Error details such as `id:`, `message:`, `min:`, `max:`, and `missing:` are now carried
+  as block fields instead of positional line arguments
+- Success responses unified as `OK[ <text>]`; `STATUS` now uses the same `OK` form with
+  optional trailing human-readable text
+
+**4.6.0**
+- Command/response model clarified: every host-issued command receives exactly one
+  terminal response
+- Terminal responses explicitly defined as `CAPS` block, `VALUE`, `OK`, `OK <status>`,
+  or `ERR`
+- `DATA` frames and `CHANGED` notifications explicitly defined as asynchronous
+  notifications that may interleave but do not satisfy a pending command
+- Command sections now consistently distinguish success responses from error responses
 
 **4.5.0**
 - `visible:<cel_expression>` optional field added to `ACTION` blocks
@@ -1287,7 +1415,7 @@ CAPS END
 << OK
 
 >> STATUS
-<< OK "PWM enabled at 1200us, 50Hz, continuous mode."
+<< OK PWM enabled at 1200us, 50Hz, continuous mode.
 ```
 
 ---
