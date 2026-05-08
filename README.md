@@ -174,10 +174,6 @@ Error response:
 ERR BEGIN UNKNOWN_PARAM
 id:<id>
 ERR END
-
-ERR BEGIN NOT_READABLE
-id:<id>
-ERR END
 ```
 
 Example:
@@ -196,6 +192,7 @@ Example:
 ```
 
 > **Note:** Multi-parameter GET is not supported. Issue one `GET` per parameter.
+> All parameters declared in `CAPS` are readable via `GET`.
 
 ---
 
@@ -239,10 +236,6 @@ Example:
 ```
 >> SET pulse_width_us 4
 >> 1200
-<< OK
-
->> SET display 3072
->> <3072 bytes of JPEG data>
 << OK
 ```
 
@@ -456,7 +449,7 @@ groups in any order they choose.
 ```
 PARAM BEGIN <id>
 type:<mime_type>
-access:<r|w|rw>
+access:<r|rw>
 label:<text>
 [description:<text>]
 [default:<value>]
@@ -476,7 +469,7 @@ PARAM END
 | Key | Mandatory | Description |
 |---|---|---|
 | `type` | yes | MIME type of the parameter value |
-| `access` | yes | `r`, `w`, or `rw` |
+| `access` | yes | `r` or `rw` |
 | `label` | yes | Short human-readable display name |
 | `description` | no | Longer text for tooltip, hint, or footnote |
 | `default` | no | Informational default value |
@@ -485,12 +478,16 @@ PARAM END
 | `options` | no | Space-separated option list — `seam/enum` only |
 | `flags` | no | Space-separated list of flag names — `seam/flags` only; host renders one labeled toggle per name; wire value is space-separated names of the active (true) flags; absent name means false; empty value means no flags set |
 | `watchable` | no | `true` — host may subscribe via `WATCH` |
-| `persist` | no | `true` — host should save this parameter's value and restore it via `SET` on reconnection; only meaningful on params with `access:rw` or `access:w` |
+| `persist` | no | `true` — host should save this parameter's value and restore it via `SET` on reconnection; only meaningful on params with `access:rw` |
 | `visible` | no | CEL expression; when false, the host should hide this parameter from normal UI while keeping it in the capability model — see Section 14 |
 | `enabled` | no | CEL expression; when false, the host should disable interaction with this parameter — see Section 14 |
 
 **Note on defaults:** The `default` field is informational. Hosts should always `GET`
 live values after `CAPS` before populating their UI.
+
+**Note on access:** Parameters are always readable. Use `access:r` for read-only values
+and `access:rw` for values the host may both read and update. Model write-only inputs
+as `ACTION`s with `ARG` blocks rather than as parameters.
 
 ### 8.2 Examples
 
@@ -539,13 +536,6 @@ access:r
 label:Schematic
 watchable:true
 description:Module schematic diagram
-PARAM END
-
-PARAM BEGIN display
-type:image/jpeg
-access:w
-label:Display
-description:Display framebuffer
 PARAM END
 
 PARAM BEGIN enabled_channels
@@ -980,7 +970,6 @@ fields must be ignored. `message:` is advisory only and must not be used for con
 | `UNKNOWN_CMD` | `[message]` | Unrecognized command keyword |
 | `UNKNOWN_PARAM` | `id` | No parameter with that ID |
 | `UNKNOWN_ACTION` | `id` | No action with that ID |
-| `NOT_READABLE` | `id` | Parameter is write-only |
 | `NOT_WRITABLE` | `id` | Parameter is read-only |
 | `OUT_OF_RANGE` | `id`, `min`, `max` | Numeric value outside declared min/max |
 | `INVALID_VALUE` | `id`, `[message]` | Value cannot be parsed for the declared type |
@@ -1065,7 +1054,7 @@ A conforming SEAM device should:
 A conforming SEAM host must:
 
 - Send `CAPS` immediately after opening a connection
-- Perform a `GET` sweep of all readable parameters after `CAPS` to obtain live values
+- Perform a `GET` sweep of all parameters after `CAPS` to obtain live values
 - Parse `OK` responses with or without optional trailing text
 - Parse the frame format: `KEYWORD <id> <length>\r\n<data>\r\n` for `VALUE` and `DATA`
 - Handle `ERR` blocks gracefully without crashing
@@ -1096,6 +1085,13 @@ The `version` field in a CAPS response reflects the **device firmware version**,
 the SEAM protocol version. Protocol version is tracked in this document.
 
 ### Changelog
+
+**6.0.0**
+- Parameters are now always readable via `GET`
+- `PARAM access:` narrowed from `r|w|rw` to `r|rw`
+- `NOT_READABLE` removed from the standard error set
+- Write-only data submission should be modeled as an `ACTION` with `ARG` inputs rather
+  than a write-only parameter
 
 **5.0.0**
 - Error wire format changed from single-line `ERR ...` responses to structured
@@ -1132,7 +1128,7 @@ the SEAM protocol version. Protocol version is tracked in this document.
 **4.2.0**
 - `persist:true` optional field added to `PARAM` blocks
 - When declared, the host saves the parameter's value on each read and restores it via `SET` after the initial `GET` sweep on reconnection
-- Only meaningful on params with `access:rw` or `access:w`
+- Only meaningful on writable params
 
 **4.1.0**
 - `trigger:<param_id>` optional field added to `ACTION` blocks
@@ -1264,13 +1260,6 @@ access:r
 label:Schematic
 watchable:true
 description:Module schematic diagram
-PARAM END
-
-PARAM BEGIN display
-type:image/jpeg
-access:w
-label:Display
-description:Display framebuffer
 PARAM END
 
 ACTION BEGIN center
@@ -1410,8 +1399,10 @@ CAPS END
 >> DO END
 << OK
 
->> SET display 3072
+>> DO BEGIN load_frame
+>> IN frame 3072
 >> <3072 bytes of JPEG data>
+>> DO END
 << OK
 
 >> STATUS
